@@ -11,4 +11,4 @@ services:
     startCommand: java -jar target/*.jar
     envVars:
       - key: JAVA_VERSION
-        value: 21
+        value: 17
