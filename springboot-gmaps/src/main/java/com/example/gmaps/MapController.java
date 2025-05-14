@@ -1,14 +1,13 @@
 package com.example.gmaps;
 
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.stereotype.Controller;
-import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
 public class MapController {
 
     @GetMapping("/")
-    public ModelAndView showMap() {
-        return new ModelAndView("map");
+    public String home() {
+        return "map"; // loads src/main/resources/templates/map.html
     }
 }
