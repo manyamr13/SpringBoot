@@ -2,7 +2,7 @@ services:
   - type: web
     name: springboot-gmaps
     env: java
-    buildCommand: ./mvnw clean install
+    buildCommand: mvn clean install
     startCommand: java -jar target/*.jar
     envVars:
       - key: JAVA_VERSION
