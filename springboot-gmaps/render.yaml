@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: LocationTracker
+    name: springboot-gmaps
     env: java
     buildCommand: ./mvnw clean install
-    startCommand: java -jar target/LocationTracker-0.0.1-SNAPSHOT.jar
+    startCommand: java -jar target/*.jar
     envVars:
       - key: JAVA_VERSION
         value: 21
