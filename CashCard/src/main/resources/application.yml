@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: CashCard
+
+  security:
+    user:
+      name: maatechs
+      password: techs
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+  datasource:
+    username: sa
+    password: 123456789@Aa
+    url: jdbc:sqlserver://127.0.0.1;databaseName=bootdb;integratedSecurity=false;TrustServerCertificate=true
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+
+  main:
+    allow-bean-definition-overriding: true
+
+#cashcard:
+#  service:
+#    url: localhost:8080
+
+external:
+  api:
+    base-url: http://localhost:8080  # This will be overridden in tests
