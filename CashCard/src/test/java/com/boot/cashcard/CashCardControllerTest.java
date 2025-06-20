@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-//@EnableFeignClients(basePackages = "com.boot.feignappdemo.client")
+@EnableFeignClients(basePackages = "com.boot.cashcard.fiegnclient")
 public class CashCardControllerTest {
 
     private static MockWebServer mockWebServer;

@@ -48,7 +48,7 @@ public class CashCardFeignClientTestExtrnlCall {
             {
                 "id": 1,
                 "amount": 123.00,
-                "owner": "sarah"
+                "owner": "sarah1"
             }
             """;
 
