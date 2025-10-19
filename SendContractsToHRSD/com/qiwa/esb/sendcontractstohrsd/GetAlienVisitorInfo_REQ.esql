@@ -1,0 +1,36 @@
+BROKER SCHEMA com.qiwa.esb.sendcontractstohrsd
+DECLARE urn2 NAMESPACE 'urn:MOI.NIC.eServices-V1';
+DECLARE sam2 NAMESPACE 'http://schemas.datacontract.org/2004/07/SamisObjectModel';
+
+
+CREATE COMPUTE MODULE GetAlienVisitorInfo_Rq
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		SET OutputRoot.Properties = Environment.Variables.Properties;
+		SET OutputRoot.MQMD = Environment.Variables.MQMD;
+		SET OutputRoot.MQRFH2 = Environment.Variables.MQRFH2;
+
+		DECLARE loadedPropertiesRef REFERENCE TO Environment.Properties.SendContractsToHRSD.SendContractsToHRSDFlow.Variables;
+		
+		
+		SET OutputRoot.MQRFH2.usr.soap.action = 'urn:MOI.NIC.eServices-V1/IMOL_SERVICE/GetAlienVisitorInfo';
+		SET OutputRoot.MQRFH2.usr.soap.url= loadedPropertiesRef.NICURL;
+		-- Call NIC GetAlienVisitorInfo
+		CREATE FIRSTCHILD OF OutputRoot.XMLNSC.GetAlienVisitorInfoRq NAME 'Header';
+		CREATE LASTCHILD OF OutputRoot.XMLNSC.GetAlienVisitorInfoRq NAME 'Body';
+		DECLARE rOutBodyRef REFERENCE TO OutputRoot.XMLNSC.GetAlienVisitorInfoRq.Body;
+
+		SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:id = Environment.Variables.DB.ContractDetails.RequesterIdNo;
+	 	SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:AuthenticationInfo.sam2:AgencyId = loadedPropertiesRef.AgencyId;
+		SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:AuthenticationInfo.sam2:AgencyPasspword = loadedPropertiesRef.AgencyPasspword;
+		SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:AuthenticationInfo.sam2:ClientIpAddress = loadedPropertiesRef.ClientIpAddress;
+		SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:AuthenticationInfo.sam2:Lang =loadedPropertiesRef.Lang;
+ 		SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:AuthenticationInfo.sam2:LocationId =loadedPropertiesRef.LocationId;
+		SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:AuthenticationInfo.sam2:OperatorID = Environment.Variables.DB.ContractDetails.RequesterIdNo;
+		SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:AuthenticationInfo.sam2:ServiceID = loadedPropertiesRef.ServiceID;
+		SET rOutBodyRef.urn2:GetAlienVisitorInfo.urn2:AuthenticationInfo.sam2:SeviceProviderID = loadedPropertiesRef.SeviceProviderID;
+		RETURN TRUE;
+	END;
+
+	
+END MODULE;

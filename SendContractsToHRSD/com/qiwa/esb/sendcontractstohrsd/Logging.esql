@@ -1,0 +1,636 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+BROKER SCHEMA com.qiwa.esb.sendcontractstohrsd
+
+
+CREATE COMPUTE MODULE Logging
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		DECLARE PropertiesRef REFERENCE TO Environment.Properties.SendContractsToHRSD.SendContractsToHRSDFlow.Variables;
+		SET OutputRoot.Properties.CodedCharSetId = '1208';
+
+		DECLARE ResultId , InsertRes ,SPResult, TerminateContractGet,result, TCReasonId, RequestorIdNo integer;
+		DECLARE InTCReasonId, OutTCReasonId INTEGER;
+		SET ResultId = SchedulerRunSetting_Get_by_SchedulerCode(CAST(PropertiesRef.SchID as INTEGER), Environment.Variables.ESB.ResultSet[]);
+		IF ResultId <> 0 THEN
+			RETURN FALSE;
+		END IF;
+		SET Environment.Variables.QiwaTRXID = CAST( CURRENT_TIMESTAMP AS CHARACTER FORMAT 'yyyyMMddhhmmss');
+
+		SET InsertRes = InsertLogs(CAST(PropertiesRef.SchID as INTEGER),
+		CAST(Environment.Variables.ESB.ResultSet.CurrentDate AS TIMESTAMP),
+		NULL,
+		CAST(Environment.Variables.ESB.ResultSet.CurrentTime AS TIME),
+		NULL,
+		NULL,
+		CAST(PropertiesRef.SchID as INTEGER),
+		Environment.Variables.ESB.Insertlog[] );
+		COMMIT;
+		SET Environment.Variables.SchedulerRun.TotalRecords = 0;
+		SET Environment.Variables.SchedulerRun.FailedRecords = 0;
+		SET Environment.Variables.SchedulerRun.SuccessRecords = 0;
+		SET Environment.Variables.SchedulerRun.FailedRecordsID = 'Failed ' ;
+
+		DECLARE NbPages INT 0;
+		SET Environment.Variables.ESB.PageSize = 100;
+		WHILE Environment.Variables.ESB.PageSize >= 100 DO
+			SET NbPages= NbPages +1 ;
+			
+			Call UnifiedContractsList_Get (
+			CAST(PropertiesRef.PageSize AS INT),
+			COALESCE ( CAST( Environment.Variables.ESB.UnifiedContractsList[1].NextId AS INT), CAST(PropertiesRef.FromId AS INT) ),
+			Environment.Variables.ESB.UnifiedContractsList[]) INTO SPResult;
+			-- SET Environment.Variables.ESB.PageSize = Environment.Variables.ESB.UnifiedContractsList[1].TotalRecordCount;
+
+
+
+			IF EXISTS (Environment.Variables.ESB.UnifiedContractsList[]) THEN
+				DECLARE rUnifiedContractsList REFERENCE TO Environment.Variables.ESB.UnifiedContractsList[1];
+				WHILE LASTMOVE(rUnifiedContractsList) DO
+					SET Environment.Variables.IsFail = 0;
+
+					SET Environment.Variables.SchedulerRun.TotalRecords = Environment.Variables.SchedulerRun.TotalRecords + 1;
+					SET Environment.Variables.CurrentFile= rUnifiedContractsList;
+
+					IF rUnifiedContractsList.StatusId = '15' THEN
+
+						CALL Get_ContractDetails (
+						CAST(rUnifiedContractsList.ContractId AS INT),
+						Environment.Variables.DB.ContractDetails[]
+						)INTO result;
+
+						CALL ContractAllowances_Get (
+						CAST(rUnifiedContractsList.ContractId AS INT),
+						Environment.Variables.DB.Allowances[]
+						)INTO result;
+
+						CALL ContractOptionalClauses_Get (
+						CAST(rUnifiedContractsList.ContractId AS INT),
+						Environment.Variables.DB.OptionalClauses[]
+						)INTO result;
+
+						CALL ContractAdditionalTerms_Get (
+						CAST(rUnifiedContractsList.ContractId AS INT),
+						Environment.Variables.DB.AdditionalTerms[]
+						)INTO result;
+
+						CALL ContractInKindBenefits_Get (
+						CAST(rUnifiedContractsList.ContractId AS INT),
+						Environment.Variables.DB.InKindBenefits[]
+						)INTO result;
+
+						CALL ContractCommission_Get (
+						CAST(rUnifiedContractsList.ContractId AS INT),
+						Environment.Variables.DB.Commission[]
+						)INTO result;
+
+						IF Environment.Variables.DB.ContractDetails.UpdateByIDNumber IS NOT NULL AND   Environment.Variables.DB.ContractDetails.UpdateByIDNumber <> '' 
+							AND EXISTS (Environment.Variables.DB.ContractDetails.UpdateByIDNumber[])   THEN
+							SET Environment.Variables.DB.ContractDetails.RequesterIdNo=Environment.Variables.DB.ContractDetails.UpdateByIDNumber;
+						END IF;
+						CREATE LASTCHILD OF OutputRoot DOMAIN 'XMLNSC';
+						CREATE LASTCHILD OF OutputRoot.XMLNSC NAME 'ContractData';
+						DECLARE rOutRef REFERENCE TO OutputRoot.XMLNSC.ContractData;
+
+						SET Environment.Variables.QiwaTRXID = CAST(Environment.Variables.QiwaTRXID AS INTEGER) + 1;
+						SET rOutRef.QiwaTRXID = CAST(Environment.Variables.QiwaTRXID AS INTEGER);
+
+						SET rOutRef.FirstPartyInformation.IdNumber = Environment.Variables.DB.ContractDetails.RequesterIdNo;
+
+
+
+						IF STARTSWITH(CAST(Environment.Variables.DB.ContractDetails.RequesterIdNo AS CHAR),CAST(PropertiesRef.One AS CHAR)) THEN
+							CALL Get_BirthDate (
+							CAST(Environment.Variables.DB.ContractDetails.RequesterIdNo AS CHARACTER),
+							Environment.Variables.DB.BirthDate[]
+							)INTO result;
+							PROPAGATE TO LABEL 'GetCitizen' DELETE NONE;
+							SET rOutRef.FirstPartyInformation.IdType = PropertiesRef.NationalityId;
+							SET rOutRef.FirstPartyInformation.IdExpiryDate = SUBSTRING(Environment.Variables.OutputRefCitizenFisrt.*:IDExpiryGregorianDate BEFORE 'T');
+							SET rOutRef.FirstPartyInformation.PassportNumber VALUE = NULL ;
+							SET rOutRef.FirstPartyInformation.FirstName = Environment.Variables.OutputRefCitizenFisrt.*:FirstName ;
+							SET rOutRef.FirstPartyInformation.SecondName = Environment.Variables.OutputRefCitizenFisrt.*:SecondName;
+							SET rOutRef.FirstPartyInformation.ThirdName = Environment.Variables.OutputRefCitizenFisrt.*:ThirdName;
+							SET rOutRef.FirstPartyInformation.LastName = Environment.Variables.OutputRefCitizenFisrt.*:LastName;
+							SET rOutRef.FirstPartyInformation.DateOfBirth.HijriDate = Environment.Variables.OutputRefCitizenFisrt.*:BirthHijriDate;
+							SET rOutRef.FirstPartyInformation.NationalityId = '1';
+							IF Environment.Variables.OutputRefCitizenFisrt.*:Gender = 'F' THEN
+								SET rOutRef.FirstPartyInformation.GenderId = '2';
+							ELSE
+								SET rOutRef.FirstPartyInformation.GenderId = '1';
+							END IF;
+						ELSE
+							PROPAGATE TO LABEL 'GetAlienInfo' DELETE NONE;
+							SET rOutRef.FirstPartyInformation.IdType = PropertiesRef.IqamaNumber;
+							SET rOutRef.FirstPartyInformation.IdExpiryDate = SUBSTRING(Environment.Variables.OutputRefVisitorFirst.*:ResidencyExpiryDateGreg BEFORE 'T');
+							SET rOutRef.FirstPartyInformation.PassportNumber VALUE = Environment.Variables.OutputRefVisitorFirst.*:PassportNumber;
+							SET rOutRef.FirstPartyInformation.FirstName = Environment.Variables.OutputRefVisitorFirst.*:FirstName ;
+							SET rOutRef.FirstPartyInformation.SecondName = Environment.Variables.OutputRefVisitorFirst.*:SecondName;
+							SET rOutRef.FirstPartyInformation.ThirdName = Environment.Variables.OutputRefVisitorFirst.*:ThirdName;
+							SET rOutRef.FirstPartyInformation.LastName = Environment.Variables.OutputRefVisitorFirst.*:LastName;
+							SET rOutRef.FirstPartyInformation.DateOfBirth.GregDate VALUE = SUBSTRING(Environment.Variables.OutputRefVisitorFirst.*:BirthDateGreg BEFORE 'T');
+							SET rOutRef.FirstPartyInformation.NationalityId = Environment.Variables.DB.NICHRSDCodes.EquivalentId ;
+							IF Environment.Variables.OutputRefVisitorFirst.*:Sex = 'FEMALE' THEN
+								SET rOutRef.FirstPartyInformation.GenderId = '2';
+							ELSE
+								SET rOutRef.FirstPartyInformation.GenderId = '1';
+							END IF;
+						END IF;
+						SET rOutRef.SecondPartyInformation.IdNumber = Environment.Variables.DB.ContractDetails.LaborerId ;
+						SET rOutRef.SecondPartyInformation.MaritalStatus = Environment.Variables.DB.ContractDetails.MaritalStatusId ;
+						IF STARTSWITH(CAST(Environment.Variables.DB.ContractDetails.LaborerId AS CHAR),CAST(PropertiesRef.One AS CHAR)) THEN
+							PROPAGATE TO LABEL 'GetCitizenEmp' DELETE NONE;
+							SET rOutRef.SecondPartyInformation.IdType = PropertiesRef.NationalityId;
+							SET rOutRef.SecondPartyInformation.IdExpiryDate = SUBSTRING(Environment.Variables.OutputRefCitizenSec.*:IDExpiryGregorianDate BEFORE 'T');
+							SET rOutRef.SecondPartyInformation.PassportNumber VALUE = NULL ;
+							SET rOutRef.SecondPartyInformation.FirstName = Environment.Variables.OutputRefCitizenSec.*:FirstName ;
+							SET rOutRef.SecondPartyInformation.SecondName = Environment.Variables.OutputRefCitizenSec.*:SecondName;
+							SET rOutRef.SecondPartyInformation.ThirdName = Environment.Variables.OutputRefCitizenSec.*:ThirdName;
+							SET rOutRef.SecondPartyInformation.LastName = Environment.Variables.OutputRefCitizenSec.*:LastName;
+							SET rOutRef.SecondPartyInformation.DateOfBirth.HijriDate = Environment.Variables.DB.ContractDetails.DOBHijri;
+							IF Environment.Variables.DB.ContractDetails.GenderId IS NULL OR CAST ( Environment.Variables.DB.ContractDetails.GenderId AS INT) = 0 THEN
+
+
+								IF Environment.Variables.OutputRefCitizenSec.*:Gender = 'F' THEN
+									SET rOutRef.SecondPartyInformation.GenderId = '2';
+								ELSE
+									SET rOutRef.SecondPartyInformation.GenderId = '1';
+								END IF;
+							ELSE
+								SET rOutRef.SecondPartyInformation.GenderId = Environment.Variables.DB.ContractDetails.GenderId ;
+							END IF;
+
+							IF Environment.Variables.DB.ContractDetails.MaritalStatusId IS NULL OR CAST ( Environment.Variables.DB.ContractDetails.MaritalStatusId AS INT) = 0 THEN
+
+								IF Environment.Variables.OutputRefCitizenSec.*:MaritalStatus IN ('أعزب' , 'غير متزوجة' ) THEN --2
+									SET rOutRef.SecondPartyInformation.MaritalStatus = 1 ;
+								ELSEIF Environment.Variables.OutputRefCitizenSec.*:MaritalStatus IN ( 'متزوجه' , 'زوجتين' ,'زوجة واحدة' , 'ثلا ث زوجات' , 'اربع زوجات' ) THEN --3 , 4
+									SET rOutRef.SecondPartyInformation.MaritalStatus = 2 ;
+
+								ELSEIF Environment.Variables.OutputRefCitizenSec.*:MaritalStatus IN ('مطلقه' , 'مطلقة معلقة' ) THEN --5
+									SET rOutRef.SecondPartyInformation.MaritalStatus = 3 ;
+
+								ELSEIF Environment.Variables.OutputRefCitizenSec.*:MaritalStatus IN ('أرمله' ) THEN --6
+									SET rOutRef.SecondPartyInformation.MaritalStatus = 4 ;
+
+								END IF ;
+							ELSE
+								SET rOutRef.SecondPartyInformation.MaritalStatus = Environment.Variables.DB.ContractDetails.MaritalStatusId ;
+							END IF;
+
+
+						ELSE
+							PROPAGATE TO LABEL 'GetAlienInfoEmp' DELETE NONE;
+							SET rOutRef.SecondPartyInformation.IdType = PropertiesRef.IqamaNumber;
+							SET rOutRef.SecondPartyInformation.IdExpiryDate = SUBSTRING(Environment.Variables.OutputRefVisitorSec.*:ResidencyExpiryDateGreg BEFORE 'T');
+							SET rOutRef.SecondPartyInformation.PassportNumber = rUnifiedContractsList.PassportNumber ;
+							SET rOutRef.SecondPartyInformation.FirstName = Environment.Variables.OutputRefVisitorSec.*:FirstName ;
+							SET rOutRef.SecondPartyInformation.SecondName = Environment.Variables.OutputRefVisitorSec.*:SecondName;
+							SET rOutRef.SecondPartyInformation.ThirdName = Environment.Variables.OutputRefVisitorSec.*:ThirdName;
+							SET rOutRef.SecondPartyInformation.LastName = Environment.Variables.OutputRefVisitorSec.*:LastName;
+							SET rOutRef.SecondPartyInformation.DateOfBirth.GregDate VALUE = SUBSTRING(Environment.Variables.OutputRefVisitorSec.*:BirthDateGreg BEFORE 'T');
+							IF Environment.Variables.DB.ContractDetails.GenderId IS NULL OR CAST ( Environment.Variables.DB.ContractDetails.GenderId AS INT) = 0 THEN
+								DECLARE Gender CHARACTER Environment.Variables.OutputRefVisitorSec.*:Sex; 
+		
+								IF Gender = 'FEMALE' THEN
+									SET rOutRef.SecondPartyInformation.GenderId = '2';
+								ELSEIF Gender = 'MALE' THEN
+									SET rOutRef.SecondPartyInformation.GenderId = '1';
+								END IF;
+							ELSE
+								SET rOutRef.SecondPartyInformation.GenderId = Environment.Variables.DB.ContractDetails.GenderId ;
+							END IF;
+							IF Environment.Variables.DB.ContractDetails.MaritalStatusId IS NULL OR CAST ( Environment.Variables.DB.ContractDetails.MaritalStatusId AS INT) = 0 THEN
+								DECLARE MaritalStatus CHARACTER Environment.Variables.OutputRefVisitorSec.*:MaritalStatusCode; 
+
+								IF CAST(MaritalStatus AS INTEGER)= 3 THEN
+									SET rOutRef.SecondPartyInformation.MaritalStatus = 5;
+								ELSE
+									SET rOutRef.SecondPartyInformation.MaritalStatus = CAST(MaritalStatus AS INTEGER) ;
+
+								END IF;
+
+							ELSE
+								SET rOutRef.SecondPartyInformation.MaritalStatus = Environment.Variables.DB.ContractDetails.MaritalStatusId ;
+							END IF ;
+						END IF;
+
+						IF Environment.Variables.DB.ContractDetails.RenewalTimes IS NULL THEN
+							SET Environment.Variables.DB.ContractsExpiryDates.ContractExpiryDate = CAST(Environment.Variables.DB.ContractDetails.GregorianExpiryDate AS TIMESTAMP);
+						ELSE
+							CALL ContractExpiryDate_Calculate (
+							CAST(Environment.Variables.DB.ContractDetails.GregorianExpiryDate AS TIMESTAMP),
+							CAST(Environment.Variables.DB.ContractDetails.ContractPeriod AS INTEGER),
+							CAST(Environment.Variables.DB.ContractDetails.RenewalTimes AS INTEGER),
+							Environment.Variables.DB.ContractsExpiryDates[]
+							)INTO result;
+						END IF;
+
+
+
+						SET rOutRef.SecondPartyInformation.NationalityId = Environment.Variables.DB.ContractDetails.NationalityId ;
+
+						SET rOutRef.SecondPartyInformation.NationalAddress = Environment.Variables.DB.ContractDetails.LaborerNationalAddress ;
+						SET rOutRef.SecondPartyInformation.LaborerEmail = Environment.Variables.DB.ContractDetails.LaborerEmail ;
+						SET rOutRef.SecondPartyInformation.LaborerMobileNumber = Environment.Variables.DB.ContractDetails.LaborerMobileNumber ;
+						SET rOutRef.SecondPartyInformation.IBAN = Environment.Variables.DB.ContractDetails.IBAN ;
+
+
+						SET rOutRef.EstablishmentDetails.NationalUnifiedNumber = Environment.Variables.DB.ContractDetails.UnifiedNationalNumber ;
+						SET rOutRef.EstablishmentDetails.EstablishmentName = Environment.Variables.DB.ContractDetails.EstablishmentNameAr ;
+						SET rOutRef.EstablishmentDetails.EstablishmentTypeId = Environment.Variables.DB.ContractDetails.EstablishmentTypeId ;
+						SET rOutRef.EstablishmentDetails.NationalAddress = Environment.Variables.DB.ContractDetails.EstablishmentNationalAddress ;
+						SET rOutRef.EstablishmentDetails.EstablishmentEmail = Environment.Variables.DB.ContractDetails.EstablishmentEmail ;
+						SET rOutRef.EstablishmentDetails.PhoneNumber = Environment.Variables.DB.ContractDetails.PhoneNumber;
+						SET rOutRef.EstablishmentDetails.MobileNumber = Environment.Variables.DB.ContractDetails.MobileNumber;
+						SET rOutRef.ContractDetails.ContractId = Environment.Variables.DB.ContractDetails.ContractId;
+						SET rOutRef.ContractDetails.ContractStartDate = CAST(Environment.Variables.DB.ContractDetails.GregorianStartDate_Original AS DATE FORMAT 'yyyy-MM-dd');
+						SET rOutRef.ContractDetails.ContractExpiryDate = CAST(Environment.Variables.DB.ContractsExpiryDates.ContractExpiryDate AS DATE FORMAT 'yyyy-MM-dd');
+						SET rOutRef.ContractDetails.JoiningDate = CAST(Environment.Variables.DB.ContractDetails.GregorianStartDate_Original AS DATE FORMAT 'yyyy-MM-dd');
+						SET rOutRef.ContractDetails.CreationDate = CAST(Environment.Variables.DB.ContractDetails.CreationDate AS DATE FORMAT 'yyyy-MM-dd');
+						SET rOutRef.ContractDetails.ContractExecutionLocation.Code = Environment.Variables.DB.ContractDetails.ExecutionLocationId;
+						SET rOutRef.ContractDetails.ContractExecutionLocation.Name = Environment.Variables.DB.ContractDetails.ExecutionLocationAr;
+						SET rOutRef.ContractDetails.WorkLocation.Code = Environment.Variables.DB.ContractDetails.WorkLocationId;
+						SET rOutRef.ContractDetails.WorkLocation.Name = Environment.Variables.DB.ContractDetails.WorkLocationAr;
+						SET rOutRef.ContractDetails.OccupationId = Environment.Variables.DB.ContractDetails.OccupationId;
+						SET rOutRef.ContractDetails.JobTitle.JobTitleAr = Environment.Variables.DB.ContractDetails.JobTitleAr;
+						SET rOutRef.ContractDetails.JobTitle.JobTitleEng = Environment.Variables.DB.ContractDetails.JobTitleEn;
+						SET rOutRef.ContractDetails.ContractType = Environment.Variables.DB.ContractDetails.ContractTypeAr;
+						SET rOutRef.ContractDetails.ContractDuration = Environment.Variables.DB.ContractDetails.ContractDurationAr;
+						SET rOutRef.ContractDetails.ContractPeriod = Environment.Variables.DB.ContractDetails.ContractPeriod;
+						SET rOutRef.ContractDetails.ProbationPeriod = Environment.Variables.DB.ContractDetails.ProbationPeriod;
+						SET rOutRef.ContractDetails.NoticePeriod = Environment.Variables.DB.ContractDetails.NoticePeriod;
+						SET rOutRef.ContractDetails.VacationPeriod = Environment.Variables.DB.ContractDetails.VacationPeriod;
+						SET rOutRef.ContractDetails.WorkingHoursType = Environment.Variables.DB.ContractDetails.WorkingHoursTypeAr;
+						SET rOutRef.ContractDetails.HoursPerWeek = Environment.Variables.DB.ContractDetails.HoursPerWeek;
+						SET rOutRef.ContractDetails.DaysPerWeek = Environment.Variables.DB.ContractDetails.DaysPerWeek;
+						SET rOutRef.ContractDetails.HoursPerDay = Environment.Variables.DB.ContractDetails.HoursPerDay;
+						SET rOutRef.ContractDetails.RestingDays = Environment.Variables.DB.ContractDetails.RestingDays;
+						SET rOutRef.ContractDetails.Salary = Environment.Variables.DB.ContractDetails.Salary;
+						SET rOutRef.ContractDetails.SalaryDueDay = Environment.Variables.DB.ContractDetails.SalaryDueDay;
+						SET rOutRef.ContractDetails.TotalSalary = Environment.Variables.DB.ContractDetails.TotalSalary;
+						SET rOutRef.ContractDetails.RenewalStatus = Environment.Variables.DB.ContractDetails.RenewalStatusAr;
+						SET rOutRef.ContractDetails.RenewalTimes = Environment.Variables.DB.ContractDetails.RenewalTimes;
+						SET rOutRef.ContractDetails.RenewalPeriod = Environment.Variables.DB.ContractDetails.RenewalPeriod;
+
+						IF EXISTS(Environment.Variables.DB.Allowances[]) THEN
+							DECLARE rAllowances REFERENCE TO Environment.Variables.DB.Allowances[1];
+
+							DECLARE x INT 1;
+							WHILE LASTMOVE(rAllowances) DO
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].AllowanceType.Code = rAllowances.AllowanceTypeId;
+								--SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].AllowanceType = rAllowances.AllowanceTypeEn;
+								SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].AllowanceType VALUE = rAllowances.AllowanceTypeAr;
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].Frequency.Code = rAllowances.FrequencyId;
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].Frequency.NameEn = rAllowances.FrequencyEn;
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].Frequency.NameAr = rAllowances.FrequencyAr;
+								-- IF rOutRef.ContractDetails.Allowances.IsProvidedByEstablishment = FALSE THEN
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].IsProvidedByEstablishment = 0;
+								-- ELSE
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].IsProvidedByEstablishment = 1;
+								-- END IF;
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].AmountType.Code = rAllowances.AmountTypeId;
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].AmountType.NameEn = rAllowances.AmountTypeEn;
+								-- SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].AmountType.NameAr = rAllowances.AmountTypeAr;
+								SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].NameAr = rAllowances.NameAr;
+								--SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].NameEn = rAllowances.NameEn;
+								SET rOutRef.ContractDetails.Allowances.AllowancesItem[x].Amount = rAllowances.Amount;
+								SET x = x+1;
+								MOVE rAllowances NEXTSIBLING REPEAT NAME;
+							END WHILE;
+						ELSE
+							SET rOutRef.ContractDetails.Allowances VALUE = NULL;
+						END IF;
+
+						IF EXISTS(Environment.Variables.DB.OptionalClauses[]) THEN
+							DECLARE y INT 1;
+							DECLARE rOptionalClauses REFERENCE TO Environment.Variables.DB.OptionalClauses[1];
+							WHILE LASTMOVE(rOptionalClauses) DO
+								-- SET rOutRef.ContractDetails.OptionalClauses.OptionalClausesItem[y].OptionalClausesType.Code = rOptionalClauses.OptionalClausesTypeId;
+								--SET rOutRef.ContractDetails.OptionalClauses.OptionalClausesItem[y].OptionalClausesType = rOptionalClauses.OptionalClausesTypeEn;
+								SET rOutRef.ContractDetails.OptionalClauses.OptionalClausesItem[y].OptionalClausesType = rOptionalClauses.OptionalClausesTypeAr;
+								SET rOutRef.ContractDetails.OptionalClauses.OptionalClausesItem[y].Period = COALESCE(rOptionalClauses.Period , '') ;
+								SET rOutRef.ContractDetails.OptionalClauses.OptionalClausesItem[y].Field = COALESCE(rOptionalClauses.Field,'') ;
+								SET rOutRef.ContractDetails.OptionalClauses.OptionalClausesItem[y].Location = COALESCE(rOptionalClauses.Location,'') ;
+								SET rOutRef.ContractDetails.OptionalClauses.OptionalClausesItem[y].FirstParty = rOptionalClauses.FirstParty;
+								SET rOutRef.ContractDetails.OptionalClauses.OptionalClausesItem[y].SecondParty = rOptionalClauses.SecondParty;
+								SET y = y + 1;
+								MOVE rOptionalClauses NEXTSIBLING REPEAT NAME;
+							END WHILE;
+						ELSE
+							SET rOutRef.ContractDetails.OptionalClauses VALUE = NULL;
+						END IF;
+
+
+						IF EXISTS(Environment.Variables.DB.AdditionalTerms[]) THEN
+							DECLARE z INT 1;
+							DECLARE rAdditionalTerms REFERENCE TO Environment.Variables.DB.AdditionalTerms[1];
+							WHILE LASTMOVE(rAdditionalTerms) DO
+								--SET rOutRef.ContractDetails.AdditionalTerms.AdditionalTermsItem[z].NameEn = rAdditionalTerms.NameEn;
+								SET rOutRef.ContractDetails.AdditionalTerms.AdditionalTermsItem[z].NameAr = rAdditionalTerms.NameAr;
+								SET z = z + 1;
+								MOVE rAdditionalTerms NEXTSIBLING REPEAT NAME;
+							END WHILE;
+						ELSE
+							SET rOutRef.ContractDetails.AdditionalTerms VALUE = NULL;
+						END IF;
+
+						IF EXISTS(Environment.Variables.DB.InKindBenefits[]) THEN
+							DECLARE i INT 1;
+							DECLARE rInKindBenefits REFERENCE TO Environment.Variables.DB.InKindBenefits[1];
+							WHILE LASTMOVE(rInKindBenefits) DO
+								--SET rOutRef.ContractDetails.InKindBenefits.InKindBenefitsItem[i].NameEn = rInKindBenefits.NameEn;
+								SET rOutRef.ContractDetails.InKindBenefits.InKindBenefitsItem[i].NameAr = rInKindBenefits.NameAr;
+								--SET rOutRef.ContractDetails.InKindBenefits.InKindBenefitsItem[i].DescriptionEn = rInKindBenefits.DescriptionEn;
+								SET rOutRef.ContractDetails.InKindBenefits.InKindBenefitsItem[i].DescriptionAr = rInKindBenefits.DescriptionAr;
+								-- SET rOutRef.ContractDetails.InKindBenefits.InKindBenefitsItem[i].Frequency.Code = rInKindBenefits.FrequencyCode;
+								--SET rOutRef.ContractDetails.InKindBenefits.InKindBenefitsItem[i].Frequency = rInKindBenefits.FrequencyEn;
+								SET rOutRef.ContractDetails.InKindBenefits.InKindBenefitsItem[i].Frequency = rInKindBenefits.FrequencyAr;
+								SET rOutRef.ContractDetails.InKindBenefits.InKindBenefitsItem[i].DueDate = rInKindBenefits.DueDate;
+								SET i = i + 1;
+								MOVE rInKindBenefits NEXTSIBLING REPEAT NAME;
+							END WHILE;
+						ELSE
+							SET rOutRef.ContractDetails.InKindBenefits VALUE = NULL;
+						END IF;
+
+						IF EXISTS(Environment.Variables.DB.Commission[]) THEN
+							DECLARE j INT 1;
+							DECLARE rCommission REFERENCE TO Environment.Variables.DB.Commission[1];
+							WHILE LASTMOVE(rCommission) DO
+								--SET rOutRef.ContractDetails.Commission.CommissionItem[j].CommissionBaseEn = rCommission.CommissionBaseEn;
+								SET rOutRef.ContractDetails.Commission.CommissionItem[j].CommissionBaseAr = rCommission.CommissionBaseAr;
+								SET rOutRef.ContractDetails.Commission.CommissionItem[j].Percentage = rCommission.Percentage;
+								-- SET rOutRef.ContractDetails.Commission.CommissionItem[j].Frequency.Code = rCommission.FrequencyCode;
+								--SET rOutRef.ContractDetails.Commission.CommissionItem[j].Frequency = rCommission.FrequencyEn;
+								SET rOutRef.ContractDetails.Commission.CommissionItem[j].Frequency = rCommission.FrequencyAr;
+								SET j = j + 1;
+								MOVE rCommission NEXTSIBLING REPEAT NAME;
+							END WHILE;
+						ELSE
+							SET rOutRef.ContractDetails.Commission VALUE = NULL;
+						END IF;
+
+
+						PROPAGATE TO TERMINAL 'out1' DELETE NONE;
+						IF Environment.Variables.IsFail = 0 THEN
+
+							DECLARE xmlBlob BLOB;
+							DECLARE xmlAsChar CHARACTER;
+							SET xmlBlob = ASBITSTREAM(OutputRoot.XMLNSC CCSID 1208 ENCODING 546);
+							SET xmlAsChar = CAST(xmlBlob AS CHARACTER CCSID 1208);
+
+							CALL MOJUnifiedContracts_Insert (
+							CAST(rOutRef.QiwaTRXID AS CHARACTER),
+							CAST(rUnifiedContractsList.ContractId AS INT),
+							CAST('1' AS INTEGER),
+							xmlAsChar,
+							1,
+							Environment.Variables.DB.MOJUnified[]
+							)INTO result;
+
+							CALL ContractsHRSDFlags_Update (
+							CAST(rUnifiedContractsList.ContractId AS INT),
+							CAST('1' AS INTEGER),
+							NULL ,
+							NULL,
+							Environment.Variables.DB.HRSDFlags[]
+							)INTO result;
+
+							COMMIT;
+							SET Environment.Variables.SchedulerRun.SuccessRecords = Environment.Variables.SchedulerRun.SuccessRecords + 1;
+
+						ELSE
+							SET Environment.Variables.SchedulerRun.FailedRecords = Environment.Variables.SchedulerRun.FailedRecords +1 ;
+							SET Environment.Variables.SchedulerRun.FailedRecordsID = Environment.Variables.SchedulerRun.FailedRecordsID || '-' || CAST (rUnifiedContractsList.ContractId AS CHARACTER) ;
+
+						END IF ;
+						DELETE FIELD OutputRoot.XMLNSC;
+					ELSE
+						IF rUnifiedContractsList.MOJReferenceNumber IS NOT NULL THEN
+							IF rUnifiedContractsList.InactiveReasonId IN (PropertiesRef.Two,PropertiesRef.Four,PropertiesRef.Five ) THEN
+								SET TCReasonId = '13';
+							ELSEIF CAST(rUnifiedContractsList.InactiveReasonId AS INTEGER) = CAST(PropertiesRef.Three AS INTEGER) THEN
+								SET TCReasonId = '6';
+							ELSE
+								CALL TerminateContract_ByContractId_Get (
+								CAST(rUnifiedContractsList.ContractId AS INT),
+								Environment.Variables.DB.TerminateContractGet[]
+								)INTO TerminateContractGet;
+
+								SET TCReasonId = Environment.Variables.DB.TerminateContractGet.TCReasonId;
+								SET RequestorIdNo = Environment.Variables.DB.TerminateContractGet.RequesterIdNo;
+							END IF;
+
+
+							CREATE LASTCHILD OF OutputRoot.XMLNSC NAME 'TerminatedContracts';
+							DECLARE rOutRef REFERENCE TO OutputRoot.XMLNSC.TerminatedContracts;
+
+							SET Environment.Variables.QiwaTRXID = CAST(Environment.Variables.QiwaTRXID AS INTEGER) + 1;
+							SET rOutRef.TCDetails.QiwaTRXID = CAST(Environment.Variables.QiwaTRXID AS INTEGER);
+							SET rOutRef.TCDetails.MOJTRXreference = rUnifiedContractsList.MOJReferenceNumber;
+							SET rOutRef.TCDetails.ContractId = rUnifiedContractsList.ContractId;
+							IF CAST(rUnifiedContractsList.InactiveReasonId AS INTEGER) = CAST(PropertiesRef.One AS INTEGER) THEN
+								SET rOutRef.TCDetails.RequesterIdNo = Environment.Variables.DB.TerminateContractGet.RequesterIdNo;
+							ELSE
+								SET rOutRef.TCDetails.RequesterIdNo = rUnifiedContractsList.LaborerId;
+							END IF;
+
+							SET OutTCReasonId =
+							CASE TCReasonId
+
+							WHEN '1' THEN '29'
+							WHEN '3' THEN '18'
+							WHEN '4' THEN '12'
+							WHEN '5' THEN '20'
+							WHEN '6' THEN '10'
+							WHEN '7' THEN '15'
+							WHEN '8' THEN '16'
+							WHEN '9' THEN '13'
+							WHEN '10' THEN '14'
+							WHEN '12' THEN '23'
+							WHEN '13' THEN '28'
+							WHEN '14' THEN '25'
+							WHEN '15' THEN '11'
+							WHEN '16' THEN '24'
+							WHEN '17' THEN '17'
+							WHEN '18' THEN '19'
+							WHEN '19' THEN '21'
+							WHEN '20' THEN '22'
+							WHEN '21' THEN '26'
+							WHEN '22' THEN '27'
+							END;
+
+							SET rOutRef.TCDetails.TCReasonId = OutTCReasonId;
+
+
+							PROPAGATE TO TERMINAL 'out2' DELETE NONE;
+							IF Environment.Variables.IsFail = 0 THEN
+
+
+								DECLARE xmlAsBlob BLOB;
+								DECLARE xmlChar CHARACTER;
+								SET xmlAsBlob = ASBITSTREAM(OutputRoot.XMLNSC CCSID 1208 ENCODING 546);
+								SET xmlChar = CAST(xmlAsBlob AS CHARACTER CCSID 1208);
+
+								CALL MOJUnifiedContracts_Insert (
+								CAST(rOutRef.TCDetails.QiwaTRXID AS CHARACTER),
+								CAST(rUnifiedContractsList.ContractId AS INT),
+								CAST('3' AS INTEGER),
+								xmlChar,
+								1,
+								Environment.Variables.DB.MOJUnified[]
+								)INTO result;
+
+								CALL ContractsHRSDFlags_Update (
+								CAST(rUnifiedContractsList.ContractId AS INT),
+								NULL ,
+								CAST('1'AS INTEGER),
+								NULL,
+								Environment.Variables.DB.HRSDFlags[]
+								)INTO result;
+								COMMIT;
+								SET Environment.Variables.SchedulerRun.SuccessRecords = Environment.Variables.SchedulerRun.SuccessRecords + 1;
+
+							ELSE
+								SET Environment.Variables.SchedulerRun.FailedRecords = Environment.Variables.SchedulerRun.FailedRecords +1 ;
+								SET Environment.Variables.SchedulerRun.FailedRecordsID = Environment.Variables.SchedulerRun.FailedRecordsID || '-' || CAST(rUnifiedContractsList.ContractId AS CHARACTER);
+							END IF;
+						END IF;
+
+						DELETE FIELD OutputRoot.XMLNSC;
+
+					END IF;
+					--RETURN FALSE;
+					MOVE rUnifiedContractsList NEXTSIBLING REPEAT NAME;
+				END WHILE;
+				IF NbPages >= 	CAST(PropertiesRef.NbPages AS INT) THEN
+					SET Environment.Variables.ESB.PageSize = 0;
+					RETURN TRUE;
+
+				END IF;
+			ELSE
+				SET Environment.Variables.ESB.PageSize = 0;
+			END IF;
+
+		END WHILE;
+		-- IF Environment.Variables.ESB.PageSize = 0 THEN
+		-- RETURN FALSE;
+		-- END IF;
+
+		RETURN TRUE;
+	END;
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE SchedulerRunSetting_Get_by_SchedulerCode(IN SchedulerId INTEGER)
+	RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+	EXTERNAL NAME "dbo.SchedulerRunSetting_Get_by_SchedulerCode";
+
+	CREATE PROCEDURE InsertLogs (IN SchedulerId INTEGER,
+	IN LastRunDate TIMESTAMP,
+	IN ConfigDate DATE,
+	IN SchedulerStart TIME,
+	IN TimeFrom Time,
+	IN TimeToTime Time,
+	IN CreatedBy int)
+	RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+	EXTERNAL NAME "dbo.SchedulerRunSettingLog_Create";
+
+	CREATE PROCEDURE UnifiedContractsList_Get(
+	IN p_pageSize INTEGER,
+	IN p_FromId INTEGER)
+	RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.UnifiedContractsList_Get";
+
+	CREATE PROCEDURE Get_ContractDetails (
+	IN RequestId INTEGER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.Get_ContractDetails";
+
+	CREATE PROCEDURE ContractAllowances_Get (
+	IN p_ContractID INTEGER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.ContractAllowances_Get";
+
+	CREATE PROCEDURE ContractOptionalClauses_Get (
+	IN p_ContractID INTEGER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.ContractOptionalClauses_Get";
+
+	CREATE PROCEDURE ContractAdditionalTerms_Get (
+	IN p_ContractID INTEGER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.ContractAdditionalTerms_Get";
+
+	CREATE PROCEDURE ContractInKindBenefits_Get (
+	IN p_ContractID INTEGER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.ContractInKindBenefits_Get";
+
+	CREATE PROCEDURE ContractCommission_Get (
+	IN p_ContractID INTEGER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.ContractCommission_Get";
+
+	CREATE PROCEDURE ContractExpiryDate_Calculate (
+	IN p_CurrentExpiryDate TIMESTAMP,
+	IN p_ContractPeriod INTEGER,
+	IN p_RenewalTimes INTEGER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.ContractExpiryDate_Calculate";
+
+	CREATE PROCEDURE Get_BirthDate (
+	IN IdNumber CHARACTER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.Get_BirthDate";
+
+	CREATE PROCEDURE TerminateContract_ByContractId_Get (
+	IN p_ContractID INTEGER
+	) RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.TerminateContract_ByContractId_Get";
+
+	CREATE PROCEDURE MOJUnifiedContracts_Insert (IN p_TransactionId CHARACTER,
+	IN p_ContractId INTEGER,
+	IN p_ActionCode INTEGER,
+	IN p_Request CHARACTER,
+	IN CreatedBy int)
+	RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+	EXTERNAL NAME "dbo.MOJUnifiedContracts_Insert";
+
+	CREATE PROCEDURE ContractsHRSDFlags_Update (IN p_ContractId INTEGER,
+	IN p_ActivationSentToHRSD INTEGER,
+	IN p_TerminationSentToHRSD INTEGER,
+	IN p_MOJReferenceNumber int)
+	RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+	EXTERNAL NAME "dbo.ContractsHRSDFlags_Update";
+
+END MODULE;

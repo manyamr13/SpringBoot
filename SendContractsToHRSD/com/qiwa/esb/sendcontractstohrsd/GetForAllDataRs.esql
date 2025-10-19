@@ -1,0 +1,22 @@
+BROKER SCHEMA com.qiwa.esb.sendcontractstohrsd
+PATH Qiwa.Framework.Lib;
+
+CREATE FILTER MODULE GetForAllDataRs
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- Create reference to flow Environment.Properties
+		DECLARE loadedPropertiesRef REFERENCE TO Environment.Properties.CheckContRelToIdType.HTTP_CheckContRelToIdType.Variables;	
+		DECLARE InBodyRef REFERENCE TO Environment.Variables.XMLNSC.CreateContractBulkRq.Body;
+		DECLARE ResultId INTEGER;
+		IF Root.XMLNSC.GetForeignerAllDataRs.Header.ResponseStatus.Code = GetESBSuccessCode() THEN
+			SET Environment.Variables.ESB.GetForeignerAllData = Root.XMLNSC.GetForeignerAllDataRs.Body;
+			RETURN TRUE;
+		ELSE
+			SET Environment.Variables.MWResponse.status = Root.XMLNSC.GetForeignerAllDataRs.Header.ResponseStatus.Code; 
+			RETURN FALSE;
+		END IF;
+		
+		
+	END;
+
+END MODULE;

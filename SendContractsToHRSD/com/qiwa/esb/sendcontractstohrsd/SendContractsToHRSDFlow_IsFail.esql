@@ -1,0 +1,11 @@
+BROKER SCHEMA com.qiwa.esb.sendcontractstohrsd
+
+
+CREATE FILTER MODULE SendContractsToHRSDFlow_IsFail
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		SET Environment.Variables.IsFail = 1;
+		RETURN TRUE;
+	END;
+
+END MODULE;

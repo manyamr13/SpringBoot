@@ -1,0 +1,27 @@
+
+
+
+
+BROKER SCHEMA com.qiwa.esb.sendcontractstohrsd
+
+
+CREATE COMPUTE MODULE handleExcep
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		IF EXISTS( InputExceptionList.RecoverableException[]) THEN
+			SET Environment.Variables.Exception= 1 ;
+			SET Environment.Variables.EcxpDetials= 'Exception details: ' || COALESCE(InputExceptionList.RecoverableException.Label, ' ') ||
+			COALESCE( InputExceptionList.RecoverableException.DatabaseException.Text, ' ') ;
+
+			SET OutputRoot.XMLNSC.Data.FaluireDetails = InputExceptionList.RecoverableException.RecoverableException;
+			PROPAGATE TO TERMINAL 'out' DELETE NONE;
+			SET OutputRoot.XMLNSC.Data.FaluireDetails.Label = Environment.Variables.EcxpDetials ;
+			SET OutputRoot.XMLNSC.Data.FaluireDetails.Exce = COALESCE(InputExceptionList.RecoverableException.RecoverableException ,InputExceptionList.RecoverableException.DatabaseException) ;
+			SET OutputRoot.XMLNSC.Data.FaluireDetails.DBExc = InputExceptionList.RecoverableException.RecoverableException.RecoverableException.RecoverableException.RecoverableException.DatabaseException ;
+		END IF;
+		PROPAGATE TO TERMINAL 'out' DELETE NONE;
+		RETURN FALSE;
+	END;
+
+
+END MODULE;
