@@ -1,0 +1,464 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema targetNamespace="http://Qiwa/ContractManagement/CreateEmploymentContract/v1.0" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.w3.org/2001/XMLSchema" xmlns:bons0="http://Qiwa/ContractManagement/CreateEmploymentContract/v1.0" xmlns:ibmSchExtn="http://www.ibm.com/schema/extensions" xmlns:Q1="http://Qiwa/Common/Types">
+	<xsd:import namespace="http://Qiwa/Common/Types" schemaLocation="../common/types/ESB_common_types_v1.0.xsd"/>
+	<xsd:element name="CreateEmploymentContractRq" type="bons0:CreateEmploymentContractRq_Type"/>
+	<xsd:element name="CreateEmploymentContractRs" type="bons0:CreateEmploymentContractRs_Type"/>
+	<complexType ibmSchExtn:docRoot="true" name="CreateEmploymentContractRq_Type">
+		<sequence>
+			<xsd:element name="Header" type="Q1:ESBXMLRequestHeader_Type"/>
+			<xsd:element name="Body" type="bons0:CreateEmploymentContractRq_BodyType"/>
+		</sequence>
+	</complexType>
+	<complexType ibmSchExtn:docRoot="true" name="CreateEmploymentContractRs_Type">
+		<sequence>
+			<xsd:element name="Header" type="Q1:ESBXMLResponseHeader_Type"/>
+			<xsd:element name="Body" type="bons0:CreateEmploymentContractRs_BodyType"/>
+		</sequence>
+	</complexType>
+	<complexType name="CreateEmploymentContractRq_BodyType">
+		<all>
+			<element minOccurs="1" name="EstablishmentDetails" type="bons0:Establishment_Type"/>
+			<element minOccurs="1" name="RequesterDetails" type="bons0:Requester_Type"/>
+			<element minOccurs="1" name="LaborerDetails" type="bons0:Laborer_Type"/>
+			<element minOccurs="1" name="ContractDetails" type="bons0:Contract_Type"/>
+		</all>
+	</complexType>
+	<complexType name="Establishment_Type">
+		<all>
+			<element minOccurs="1" name="NationalUnifiedNumber" type="integer"/>
+			<element name="NationalAddress" minOccurs="1" maxOccurs="1">
+	          <simpleType>
+	            <restriction base="string">
+	              <pattern value="[a-zA-Z]{4}[0-9]{4}"/>
+	            </restriction>
+	          </simpleType>
+	        </element>
+	        <element name="EstablishmentEmail" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,32}"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="PhoneNumber" minOccurs="1" maxOccurs="1">
+	          <simpleType>
+	            <restriction base="string">
+	              <pattern value="01[0-9]{8}"/>
+	            </restriction>
+	          </simpleType>
+	        </element>
+			<element name="MobileNumber" minOccurs="1" maxOccurs="1">
+	          <simpleType>
+	            <restriction base="string">
+	              <pattern value="05[0-9]{8}"/>
+	            </restriction>
+	          </simpleType>
+	        </element>
+		</all>
+	</complexType>
+	<complexType name="Requester_Type">
+		<all>
+			<element minOccurs="1" name="RequesterName" type="string"/>
+			<element minOccurs="1" name="RequesterIdNo" type="integer"/>
+			<element name="RequesterRoleEn" minOccurs="1" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[a-zA-Z ]+"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="RequesterRoleAr" minOccurs="1" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[ء-ي ]+"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+		</all>
+	</complexType>
+	<complexType name="Laborer_Type">
+		<all>
+			<element minOccurs="1" name="LaborerIdNo" type="integer"/>
+			<element name="NationalAddress" minOccurs="1" maxOccurs="1">
+	          <simpleType>
+	            <restriction base="string">
+	              <pattern value="[a-zA-Z]{4}[0-9]{4}"/>
+	            </restriction>
+	          </simpleType>
+	        </element>
+	        <element name="LaborerEmail" minOccurs="1" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,32}"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element minOccurs="1" name="LaborerMobileNumber">
+				<simpleType>
+					<restriction base="string">
+						<pattern value="(05)\d{8}"/>
+					</restriction>
+				</simpleType>
+			</element>
+			<element minOccurs="1" name="LaborerDOB" type="bons0:HGDate_Type"/>
+			<element minOccurs="1" name="EducationId">
+				<simpleType>
+					<restriction base="integer">
+						<minInclusive value="1"/>
+						<maxInclusive value="8"/>
+					</restriction>
+				</simpleType>
+			</element>
+			<element minOccurs="1" name="SpecialityId" type="integer"/>
+			<element minOccurs="1" name="WorkLocationId" type="integer"/>
+			<element minOccurs="1" name="IBAN">
+				<simpleType>
+					<restriction base="string">
+						<pattern value="(SA)\d{22}"/>
+					</restriction>
+				</simpleType>
+			</element>
+		</all>
+	</complexType>
+	<complexType name="Contract_Type">
+		<all>
+			<element minOccurs="1" name="OccupationId" type="integer"/>
+			<element minOccurs="1" name="JobTitle" type="bons0:JobTitle_Type"/>
+			<element minOccurs="1" name="ContractTypeId" type="bons0:INT2_Type">
+			</element>
+			<element minOccurs="1" name="ExecutionLocation" type="integer"/>
+			<element minOccurs="1" name="ContractDurationId" type="bons0:INT2_Type">
+			</element>
+			<element minOccurs="0" name="ContractPeriod" type="integer"/>
+			<element minOccurs="1" name="CurrentStartDate" type="Q1:Tmstmp_Type"/>
+			<element minOccurs="0" name="CurrentExpiryDate" type="Q1:Tmstmp_Type"/>
+			<element minOccurs="1" name="WorkingHoursTypeId" type="bons0:INT2_Type">
+			</element>
+			<element minOccurs="1" name="DaysPerWeek" type="bons0:INT6_Type"/>
+			<element minOccurs="0" name="HoursPerDay">
+				<simpleType>
+					<restriction base="integer">
+						<minInclusive value="1"/>
+						<maxInclusive value="8"/>
+					</restriction>
+				</simpleType>
+			</element>
+			<element minOccurs="0" name="HoursPerWeek">
+				<simpleType>
+					<restriction base="integer">
+						<minInclusive value="1"/>
+						<maxInclusive value="48"/>
+					</restriction>
+				</simpleType>
+			</element>
+			
+			<element minOccurs="1" name="RestingDays">
+				<simpleType>
+					<restriction base="integer">
+						<minInclusive value="1" />
+						<maxInclusive value="6" />
+					</restriction>
+				</simpleType>
+			</element>
+			<element minOccurs="1" name="Salary" type="float"/>
+			<element minOccurs="1" name="SalaryDueDay">
+				<simpleType>
+					<restriction base="integer">
+						<minInclusive value="1"/>
+						<maxInclusive value="31"/>
+					</restriction>
+				</simpleType>
+			</element>
+			<element minOccurs="1" name="ProbationPeriod" type="integer"/>
+			<element minOccurs="1" name="VacationPeriod" type="integer"/>
+			<element minOccurs="1" name="NoticePeriod" type="integer"/>
+			<element minOccurs="1" name="RenewalStatusId">
+				<simpleType>
+					<restriction base="integer">
+						<enumeration value="1"/>
+					    <enumeration value="2"/>
+					    <enumeration value="6"/>
+					    <enumeration value="7"/>
+					</restriction>
+				</simpleType>
+			</element>
+			
+			<element minOccurs="0" name="RenewalTimes" type="integer"/>
+			<element minOccurs="0" name="RenewalPeriod" type="integer"/>
+			<element minOccurs="0" name="UploadedFiles" type="bons0:Files_Type"/>
+			<element minOccurs="0" name="Allowances" type="bons0:Allowances_Type"/>
+			<element minOccurs="0" name="InKindBenefits" type="bons0:InKindBenefits_Type" />
+			<element minOccurs="0" name="Commission"   type="bons0:Commission_Type" />					
+            <element minOccurs="0" name="OptionalClauses" type="bons0:OptionalClauses_Type" />
+            <element minOccurs="0" name="AdditionalTerms" type="bons0:Terms_Type"/>
+			
+		</all>
+	</complexType>
+	<complexType name="HGDate_Type">
+		<all>
+			<element minOccurs="0" name="HijriDate" type="integer"/>
+			<element minOccurs="0" name="GregDate" type="Q1:Tmstmp_Type"/>
+		</all>
+	</complexType>
+	<complexType name="JobTitle_Type">
+		<all>
+			<element name="JobTitleAr" minOccurs="1" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[ء-ي ]+"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="JobTitleEng" minOccurs="1" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[a-zA-Z ]+"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+		</all>
+	</complexType>
+	<complexType name="Files_Type">
+		<sequence>
+			<element minOccurs="1" maxOccurs="unbounded" name="UploadedFilesItem" type="bons0:FilesItem_Type"/>
+		</sequence>
+	</complexType>
+	<complexType name="FilesItem_Type">
+		<all>
+			<element minOccurs="1" name="FileId" type="string"/>
+			<element minOccurs="1" name="FileTypeId" type="integer"/>
+		</all>
+	</complexType>
+	<complexType name="Allowances_Type">
+		<sequence>
+			<element minOccurs="1" maxOccurs="unbounded" name="AllowancesItem" type="bons0:AllowancesItem_Type"/>
+		</sequence>
+	</complexType>
+	<complexType name="AllowancesItem_Type">
+		<all>
+			<element name="AllowanceType" minOccurs="1" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="integer">
+			      <enumeration value="1"/>
+			      <enumeration value="2"/>
+			      <enumeration value="3"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="NameAr" minOccurs="0" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[ء-ي ]+"/>
+			      <maxLength value="50"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="NameEn" minOccurs="0" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[a-zA-Z ]+"/>
+			      <maxLength value="50"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="Amount" minOccurs="1">
+			  <simpleType>
+			    <restriction base="float">
+			      <maxInclusive value="9999999.99"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+		</all>
+	</complexType>
+	
+	<complexType name="InKindBenefits_Type">
+        <sequence>
+            <element minOccurs="1" maxOccurs="15" name="InKindBenefitsItem"
+				type="bons0:InKindBenefitsItem_Type" />
+        </sequence>
+    </complexType>
+    <complexType name="InKindBenefitsItem_Type">
+        <all>
+        	<element name="NameEn" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[a-zA-Z ]+"/>
+			      <maxLength value="50"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="NameAr" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[ء-ي ]+"/>
+			      <maxLength value="50"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="DescriptionEn" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[a-zA-Z0-9.,;:!?()'\- ]+"/>
+			      <maxLength value="1000"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="DescriptionAr" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[ء-ي0-9.,؛؟!()'\- ]+"/>
+			      <maxLength value="1000"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+            <element minOccurs="1" name="Frequency">
+				<simpleType>
+					<restriction base="integer">
+						<enumeration value="1"/>
+					    <enumeration value="2"/>
+					    <enumeration value="3"/>
+					</restriction>
+				</simpleType>
+			</element>
+			
+            <element minOccurs="0" name="DueDate" type="Q1:Tmstmp_Type" />            
+        </all>
+    </complexType>
+    
+    
+    
+    <complexType name="Commission_Type">
+        <sequence>
+            <element minOccurs="1" maxOccurs="15" name="CommissionItem"
+				type="bons0:CommissionItem_Type" />
+        </sequence>
+    </complexType>
+    <complexType name="CommissionItem_Type">
+        <all>
+        	<element name="CommissionBaseEn" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[a-zA-Z ]+"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="CommissionBaseAr" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[ء-ي ]+"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<xsd:element name="Percentage" minOccurs="1">
+			  <xsd:simpleType>
+			  	<xsd:restriction base="xsd:integer">
+			  		<xsd:minExclusive value="0" />
+			  		<xsd:maxExclusive value="100" />
+			  	</xsd:restriction>
+			  </xsd:simpleType>
+			</xsd:element>
+            <element minOccurs="1" name="Frequency" type="bons0:INT4_Type" />
+         </all>
+    </complexType>
+    <simpleType name="INT6_Type">
+        <restriction base="integer">
+            <enumeration value="1" />
+            <enumeration value="2" />
+            <enumeration value="3" />
+            <enumeration value="4" />
+            <enumeration value="5" />
+            <enumeration value="6" />
+        </restriction>
+    </simpleType>
+    <simpleType name="INT4_Type">
+        <restriction base="integer">
+            <enumeration value="1" />
+            <enumeration value="2" />
+            <enumeration value="3" />
+            <enumeration value="4" />
+        </restriction>
+    </simpleType>
+    
+    <simpleType name="INT3_Type">
+        <restriction base="integer">
+            <enumeration value="1" />
+            <enumeration value="2" />
+            <enumeration value="3" />
+        </restriction>
+    </simpleType>
+    
+    <complexType name="OptionalClauses_Type">
+        <sequence>
+            <element minOccurs="1" maxOccurs="3" name="OptionalClausesItem"
+				type="bons0:OptionalClausesItem_Type" />
+        </sequence>
+    </complexType>
+    <complexType name="OptionalClausesItem_Type">
+        <all>
+            <element minOccurs="1" name="OptionalClausesType" type="bons0:INT2_Type" />
+            <element minOccurs="1" name="Period" type="integer" />
+            <element name="Field" minOccurs="0" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <maxLength value="100"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="Location" minOccurs="0" maxOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <maxLength value="100"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+            <element minOccurs="0" name="FirstParty" type="string" />
+            <element minOccurs="0" name="SecondParty" type="string" />
+        </all>
+    </complexType>
+    
+	<complexType name="Terms_Type">
+		<sequence>
+			<element minOccurs="1" maxOccurs="25" name="AdditionalTermsItem" type="bons0:TermsItem_Type"/>
+		</sequence>
+	</complexType>
+	<complexType name="TermsItem_Type">
+		<all>
+			<element name="NameAr" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[ء-ي ]+"/>
+			      <maxLength value="1000"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+			<element name="NameEn" minOccurs="1">
+			  <simpleType>
+			    <restriction base="string">
+			      <pattern value="[a-zA-Z ]+"/>
+			      <maxLength value="1000"/>
+			    </restriction>
+			  </simpleType>
+			</element>
+		</all>
+	</complexType>
+	<complexType name="CreateEmploymentContractRs_BodyType">
+		<all>
+			<element minOccurs="1" name="ContractId" type="integer"/>
+			<element minOccurs="1" name="Status" type="bons0:CodeName_Type"/>
+		</all>
+	</complexType>
+	<complexType name="CodeName_Type">
+		<all>
+			<element minOccurs="1" name="Code" type="integer"/>
+			<element minOccurs="1" name="NameAr" type="string"/>
+			<element minOccurs="1" name="NameEn" type="string"/>
+		</all>
+	</complexType>
+
+	<xsd:simpleType name="INT2_Type">
+		<xsd:restriction base="xsd:integer">
+			<xsd:enumeration value="1"></xsd:enumeration>
+			<xsd:enumeration value="2"></xsd:enumeration>
+		</xsd:restriction>
+	</xsd:simpleType>
+</xsd:schema>
