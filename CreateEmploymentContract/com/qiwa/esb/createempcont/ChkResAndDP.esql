@@ -1,0 +1,182 @@
+BROKER SCHEMA com.qiwa.esb.createempcont
+PATH Qiwa.Framework.Lib;
+
+
+CREATE COMPUTE MODULE ChkResAndDP
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		/*check validate service response + prepare DP CALL*/
+		-- Reference to properties defined for the ValidateContract flow
+		DECLARE rProperties REFERENCE TO Environment.Properties.CreateEmploymentContract.HTTP_CreateEmpContract.Variables;
+		-- Declare references for Response
+		DECLARE InHeaderRef REFERENCE TO InputRoot.XMLNSC.ValidateContractRs.Header;
+		DECLARE rValidateBody REFERENCE TO InputRoot.XMLNSC.ValidateContractRs.Body;
+		--Main Body
+		DECLARE InBodyRef REFERENCE TO Environment.Variables.Input.Body;
+		-- Check if ResponseStatus.Code is not success
+		IF InHeaderRef.ResponseStatus.Code <> GetESBSuccessCode() THEN
+			SET Environment.Variables.MWResponse.status = InHeaderRef.ResponseStatus.Code;
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		END IF;
+ 		--Save res body
+		SET Environment.Variables.ValidateContract = InputRoot.XMLNSC.ValidateContractRs.Body;
+		DECLARE NoMonth INT 0;
+		DECLARE SD DATE CAST(CAST(InBodyRef.ContractDetails.CurrentStartDate AS TIMESTAMP) AS DATE);
+		IF CURRENT_DATE > SD THEN
+			DECLARE CurrM INT EXTRACT( MONTH FROM CURRENT_DATE);
+			DECLARE StartM INT EXTRACT( MONTH FROM SD );
+
+			SET NoMonth= CurrM - StartM ;
+		END IF;
+		-- if Nationality is NULL return error
+		IF rValidateBody.LaborerInfo.Nationality.Code IS NULL OR NOT EXISTS(rValidateBody.LaborerInfo.Nationality.Code[])OR rValidateBody.LaborerInfo.Nationality.Code='' THEN
+			SET Environment.Variables.MWResponse.status = rProperties.NatErrorCode; --E0002104 
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		END IF;
+		-- files validation for backdated or GCC
+		IF (rValidateBody.LaborerInfo.Nationality.Code IN (rProperties.Nationalities.Value[]) OR
+			(CAST(rValidateBody.LaborerInfo.Nationality.Code AS INT) = CAST(rProperties.One AS INT) AND CURRENT_TIMESTAMP > CAST(InBodyRef.ContractDetails.CurrentStartDate AS TIMESTAMP)
+			AND NoMonth>= CAST(rProperties.Two AS INT)))
+			AND NOT EXISTS (InBodyRef.ContractDetails.UploadedFiles[]) THEN
+			SET Environment.Variables.MWResponse.status = rProperties.NeedFilesErr; --E0001179
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		END IF;
+
+		SET Environment.Variables.NoMonth= NoMonth; --for CategoryId and files logic
+		
+		DECLARE IsBarmawiLaborer INTEGER rValidateBody.IsBarmawiLaborer;
+		IF CAST(IsBarmawiLaborer AS CHAR) IN (rProperties.IsBarmawiLaborerRes.Value[]) AND
+			CAST(rValidateBody.LaborerDetails.WorkLocationId AS CHAR) IN (rProperties.WorkLocationIds.Value[]) THEN
+			SET Environment.Variables.MWResponse.status = rProperties.NotAllowedCity ; --E0002105
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		END IF;
+		
+		-- ref to properties, Header and Body
+		DECLARE rInHeaderRef REFERENCE TO Environment.Variables.Input.Header;
+		--
+		SET OutputRoot.Properties = Environment.Variables.Properties;
+		SET OutputRoot.MQMD = Environment.Variables.MQMD;
+		SET OutputRoot.MQRFH2 = Environment.Variables.MQRFH2;
+		-- prepare call to create new contract
+		CREATE LASTCHILD OF OutputRoot DOMAIN ('XMLNSC');
+		SET OutputRoot.XMLNSC.CreateNewContractRq.Header = rInHeaderRef;
+		DECLARE OutHeaderRef REFERENCE TO OutputRoot.XMLNSC.CreateNewContractRq.Header;
+		CREATE LASTCHILD OF OutputRoot.XMLNSC.CreateNewContractRq NAME 'Body';
+		DECLARE OutBodyRef REFERENCE TO OutputRoot.XMLNSC.CreateNewContractRq.Body;
+		SET OutHeaderRef= rInHeaderRef;
+		SET OutHeaderRef.ServiceCode = rProperties.CreateNewContractSC;
+		-- prepare Body
+		-- EstablishmentDetails
+		SET OutBodyRef.EstablishmentDetails.LaborOfficeId = Environment.Variables.DB.UnifNumbRS.LaborofficeID;
+		SET OutBodyRef.EstablishmentDetails.SequenceNumber = Environment.Variables.DB.UnifNumbRS.SequenceNumber;
+		SET OutBodyRef.EstablishmentDetails.NationalAddress = InBodyRef.EstablishmentDetails.NationalAddress;
+		SET OutBodyRef.EstablishmentDetails.EstablishmentEmail = InBodyRef.EstablishmentDetails.EstablishmentEmail;
+		SET OutBodyRef.EstablishmentDetails.EstablishmentEmail = InBodyRef.EstablishmentDetails.EstablishmentEmail;
+		SET OutBodyRef.EstablishmentDetails.PhoneNumber = InBodyRef.EstablishmentDetails.PhoneNumber;
+		SET OutBodyRef.EstablishmentDetails.MobileNumber = InBodyRef.EstablishmentDetails.MobileNumber;
+
+		-- RequesterDetails
+		SET OutBodyRef.RequesterDetails.RequesterIdNo = InBodyRef.RequesterDetails.RequesterIdNo;
+		SET OutBodyRef.RequesterDetails.RequesterName = InBodyRef.RequesterDetails.RequesterName;
+		SET OutBodyRef.RequesterDetails.RequesterType = '4';
+		SET OutBodyRef.RequesterDetails.RequesterRoleAr = InBodyRef.RequesterDetails.RequesterRoleAr;
+		SET OutBodyRef.RequesterDetails.RequesterRoleEn = InBodyRef.RequesterDetails.RequesterRoleEn;
+		-- LaborerDetails
+		SET OutBodyRef.LaborerDetails.LaborerTypeId = rValidateBody.LaborerInfo.LaborerTypeId ;
+		SET OutBodyRef.LaborerDetails.LaborerIdNo = InBodyRef.LaborerDetails.LaborerIdNo;
+		SET OutBodyRef.LaborerDetails.BorderNumber = rValidateBody.LaborerInfo.BorderNumber;
+		SET OutBodyRef.LaborerDetails.PassportNumber = rValidateBody.LaborerInfo.PassportNumber ;
+		SET OutBodyRef.LaborerDetails.LaborerName = rValidateBody.LaborerInfo.LaborerName.NameAr ;
+		SET OutBodyRef.LaborerDetails.NationalAddress = InBodyRef.LaborerDetails.NationalAddress ;
+		SET OutBodyRef.LaborerDetails.LaborerEmail = InBodyRef.LaborerDetails.LaborerEmail;
+		SET OutBodyRef.LaborerDetails.LaborerMobileNumber = InBodyRef.LaborerDetails.LaborerMobileNumber;
+		SET OutBodyRef.LaborerDetails.LaborerDOB.GregDate = InBodyRef.LaborerDetails.LaborerDOB.GregDate;
+		SET OutBodyRef.LaborerDetails.LaborerDOB.HijriDate = CAST(InBodyRef.LaborerDetails.LaborerDOB.HijriDate AS INTEGER );
+		IF CAST(rValidateBody.LaborerInfo.LaborerTypeId AS INTEGER) = CAST(rProperties.Two AS INT)THEN
+			SET OutBodyRef.LaborerDetails.DOBType =rProperties.Two; 
+		ELSE
+			SET OutBodyRef.LaborerDetails.DOBType =rProperties.One ;
+		END IF;
+		SET OutBodyRef.LaborerDetails.Nationality = rValidateBody.LaborerInfo.Nationality.Code ;
+		SET OutBodyRef.LaborerDetails.Gender = rValidateBody.LaborerInfo.Gender.Code;
+		SET OutBodyRef.LaborerDetails.Religion = rValidateBody.LaborerInfo.Religion.Code;
+		SET OutBodyRef.LaborerDetails.MaritalStatus = rValidateBody.LaborerInfo.MaritalStatus.Code ;
+		SET OutBodyRef.LaborerDetails.EducationId = InBodyRef.LaborerDetails.EducationId;
+		SET OutBodyRef.LaborerDetails.SpecialtyId = InBodyRef.LaborerDetails.SpecialtyId;
+		SET OutBodyRef.LaborerDetails.WorkLocationId = InBodyRef.LaborerDetails.WorkLocationId;
+		SET OutBodyRef.LaborerDetails.IBAN = InBodyRef.LaborerDetails.IBAN;
+		-- ContractDetails
+		SET OutBodyRef.ContractDetails.OccupationId = InBodyRef.ContractDetails.OccupationId;
+		SET OutBodyRef.ContractDetails.JobTitle.JobTitleAr = InBodyRef.ContractDetails.JobTitle.JobTitleAr;
+		SET OutBodyRef.ContractDetails.JobTitle.JobTitleEng = InBodyRef.ContractDetails.JobTitle.JobTitleEng;
+		SET OutBodyRef.ContractDetails.ContractTypeId = InBodyRef.ContractDetails.ContractTypeId;
+		SET OutBodyRef.ContractDetails.ExecutionLocation = InBodyRef.ContractDetails.ExecutionLocation;
+		SET OutBodyRef.ContractDetails.ContractDurationId = InBodyRef.ContractDetails.ContractDurationId;
+		SET OutBodyRef.ContractDetails.ContractPeriod = InBodyRef.ContractDetails.ContractPeriod;
+		SET OutBodyRef.ContractDetails.CurrentStartDate = InBodyRef.ContractDetails.CurrentStartDate;
+		SET OutBodyRef.ContractDetails.CurrentExpiryDate = InBodyRef.ContractDetails.CurrentExpiryDate;
+		SET OutBodyRef.ContractDetails.WorkingHoursTypeId = InBodyRef.ContractDetails.WorkingHoursTypeId;
+		SET OutBodyRef.ContractDetails.DaysPerWeek = InBodyRef.ContractDetails.DaysPerWeek;
+		SET OutBodyRef.ContractDetails.HoursPerDay = InBodyRef.ContractDetails.HoursPerDay;
+		SET OutBodyRef.ContractDetails.HoursPerWeek = InBodyRef.ContractDetails.HoursPerWeek;
+		SET OutBodyRef.ContractDetails.RestingDays = InBodyRef.ContractDetails.RestingDays;
+		SET OutBodyRef.ContractDetails.Salary = CAST(InBodyRef.ContractDetails.Salary AS DECIMAL);
+		SET OutBodyRef.ContractDetails.SalaryDueDay = InBodyRef.ContractDetails.SalaryDueDay;
+		SET OutBodyRef.ContractDetails.ProbationPeriod = InBodyRef.ContractDetails.ProbationPeriod;
+		SET OutBodyRef.ContractDetails.ProbationTerminationRight = InBodyRef.ContractDetails.ProbationTerminationRight;
+		SET OutBodyRef.ContractDetails.VacationPeriod = InBodyRef.ContractDetails.VacationPeriod;
+		SET OutBodyRef.ContractDetails.NoticePeriod = InBodyRef.ContractDetails.NoticePeriod;
+		SET OutBodyRef.ContractDetails.RenewalStatusId = InBodyRef.ContractDetails.RenewalStatusId;
+		SET OutBodyRef.ContractDetails.RenewalTimes = InBodyRef.ContractDetails.RenewalTimes;
+		SET OutBodyRef.ContractDetails.RenewalPeriod = InBodyRef.ContractDetails.RenewalPeriod;
+
+		IF (rValidateBody.LaborerInfo.Nationality.Code IN (rProperties.Nationalities.Value[])) OR
+			((CAST(rValidateBody.LaborerInfo.Nationality.Code AS INT) = CAST(rProperties.One AS INT) AND CURRENT_TIMESTAMP > InBodyRef.ContractDetails.CurrentStartDate
+			AND Environment.Variables.NoMonth >= CAST(rProperties.Two AS INT) ) )
+			THEN
+			--to get mapping Dynamically from prop file
+			DECLARE MappingCode CHARACTER 'MapNatCategory' || CAST(rValidateBody.LaborerInfo.Nationality.Code AS CHARACTER);
+			SET OutBodyRef.ContractDetails.CategoryId = rProperties.{MappingCode};
+			SET OutBodyRef.ContractDetails.IsUploadFilesSkiped = rProperties.Zero;
+
+		ELSE
+			SET OutBodyRef.ContractDetails.IsUploadFilesSkiped = rProperties.One;
+		END IF;
+		-- UploadedFiles
+		IF EXISTS(InBodyRef.ContractDetails.UploadedFiles.UploadedFilesItem[]) THEN
+			SET OutBodyRef.ContractDetails.UploadedFiles = InBodyRef.ContractDetails.UploadedFiles;
+		END IF;
+		--Allowances
+
+		IF EXISTS(InBodyRef.ContractDetails.Allowances.AllowancesItem[]) THEN
+			SET OutBodyRef.ContractDetails.Allowances= InBodyRef.ContractDetails.Allowances;
+		END IF;
+		-- prepare InKindBenefits
+		IF EXISTS(InBodyRef.ContractDetails.InKindBenefits.InKindBenefitsItem[]) THEN
+			SET OutBodyRef.ContractDetails.InKindBenefits= InBodyRef.ContractDetails.InKindBenefits;
+		END IF;
+		-- prepare Commission
+		IF EXISTS(InBodyRef.ContractDetails.Commission.CommissionItem[]) THEN
+			SET OutBodyRef.ContractDetails.Commission= InBodyRef.ContractDetails.Commission;
+		END IF;
+		-- prepare OptionalClauses
+		IF EXISTS(InBodyRef.ContractDetails.OptionalClauses.OptionalClausesItem[]) THEN
+			SET OutBodyRef.ContractDetails.OptionalClauses = InBodyRef.ContractDetails.OptionalClauses;
+		END IF;
+		-- prepare AdditionalTerms
+		IF EXISTS(InBodyRef.ContractDetails.AdditionalTerms.AdditionalTermsItem[]) THEN
+			SET OutBodyRef.ContractDetails.AdditionalTerms =InBodyRef.ContractDetails.AdditionalTerms;
+		END IF;
+		-- prepare Terms
+
+		SET OutBodyRef.RelatedToId = rValidateBody.RelatedToId;
+		
+		RETURN TRUE;
+	END;
+
+
+END MODULE;

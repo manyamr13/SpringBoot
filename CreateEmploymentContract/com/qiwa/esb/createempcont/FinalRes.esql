@@ -1,0 +1,67 @@
+
+BROKER SCHEMA com.qiwa.esb.createempcont
+PATH Qiwa.Framework.Lib;
+
+CREATE COMPUTE MODULE FinalRes
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		DECLARE rProperties REFERENCE TO Environment.Properties.CreateEmploymentContract.HTTP_CreateEmpContract.Variables;
+		--copying headers
+		SET OutputRoot.Properties = Environment.Variables.Properties;
+		SET OutputRoot.MQMD = Environment.Variables.MQMD;
+		SET OutputRoot.MQRFH2 = Environment.Variables.MQRFH2;
+		--refeer to main iput header
+		DECLARE InHeaderRef REFERENCE TO Environment.Variables.Input.Header;
+		-- create response header
+		CREATE FIRSTCHILD OF OutputRoot.XMLNSC.CreateEmploymentContractRs NAME 'Header';
+		DECLARE OutHeaderRef REFERENCE TO OutputRoot.XMLNSC.CreateEmploymentContractRs.Header;
+		--refer to vreate new contr
+		DECLARE rResHeader REFERENCE TO InputRoot.XMLNSC.CreateNewContractRs.Header;
+		DECLARE rResBody REFERENCE TO InputRoot.XMLNSC.CreateNewContractRs.Body;
+		--check Create new contract response
+		IF rResHeader.ResponseStatus.Code = GetESBSuccessCode() THEN
+			DECLARE GOSIRes INTEGER UnifiedContractTerms_Generate (CAST(rResBody.ContractId AS INTEGER),
+			Environment.Variables.DB.ResultSet[]) ;
+			COMMIT;
+			IF GOSIRes = 0 THEN
+				DECLARE GOSIRes1 INTEGER UnifiedContractTerms_Create (CAST(rResBody.ContractId AS INTEGER),
+				Environment.Variables.DB.ResultSet.TermsList,
+				Environment.Variables.Input.Body.RequesterDetails.RequesterIdNo
+				) ;
+				COMMIT;
+				IF GOSIRes1 = 0 THEN
+					--return success to final resp
+					-- build response Body
+					CREATE LASTCHILD OF OutputRoot.XMLNSC.CreateEmploymentContractRs NAME 'Body';
+					DECLARE OutBodyRef REFERENCE TO OutputRoot.XMLNSC.CreateEmploymentContractRs.Body;
+					--Final response Body
+					SET OutBodyRef.ContractId= rResBody.ContractId;
+					SET OutBodyRef.Status.Code= rResBody.Status.Code;
+					SET OutBodyRef.Status.NameAr= rResBody.Status.NameAr;
+					SET OutBodyRef.Status.NameEn= rResBody.Status.NameEn;
+					CALL Create_esbXML_Response_Header(rResHeader.ResponseStatus.Code,InHeaderRef,OutHeaderRef);
+				ELSE
+					CALL Create_esbXML_Response_Header(rProperties.TermsCrtErr,InHeaderRef,OutHeaderRef);
+					ROLLBACK;
+				END IF;
+			ELSE
+				CALL Create_esbXML_Response_Header(rProperties.TermsCrtErr,InHeaderRef,OutHeaderRef);
+				ROLLBACK;
+			END IF;
+		ELSE
+			CALL Create_esbXML_Response_Header(rResHeader.ResponseStatus.Code,InHeaderRef,OutHeaderRef);
+		END IF;
+
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE UnifiedContractTerms_Generate (IN ContractId INTEGER)
+	RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.UnifiedContractTerms_Generate";
+
+	CREATE PROCEDURE UnifiedContractTerms_Create (IN ContractId INTEGER,
+	IN ContractId CHARACTER,
+	IN ContractId INTEGER)
+	RETURNS INTEGER LANGUAGE DATABASE
+	EXTERNAL NAME "dbo.UnifiedContractTerms_Create";
+END MODULE;

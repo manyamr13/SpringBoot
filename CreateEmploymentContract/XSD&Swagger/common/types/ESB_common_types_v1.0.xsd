@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?><!-- The below schema describes a draft message header.  As it stands, there are no explicit requirements for any message header elements to be 
+defined.  Included below however are sample elements of potential use in the future--><schema xmlns="http://www.w3.org/2001/XMLSchema" targetNamespace="http://Qiwa/Common/Types" version="2.0c" xmlns:bons0="http://Qiwa/Common/Types" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+
+	<!-- MESSAGEHEADER, for use in soap:Header element -->
+
+	<element name="RequestMessageHeader" type="bons0:ESBXMLRequestHeader_Type"/>
+	<element name="ResponseMessageHeader" type="bons0:ESBXMLResponseHeader_Type"/>
+	<complexType name="ESBXMLRequestHeader_Type">
+		<sequence>
+			<element minOccurs="1" name="TransactionId" type="string">
+				<annotation>
+					<documentation>This is a GUId "Globally Unique Identifier" to
+						Identify the message.
+					</documentation>
+				</annotation>
+			</element>
+			<element minOccurs="1" name="ChannelId" nillable="false" type="bons0:ChanId_Type"/>
+			<element minOccurs="0" name="SessionId" type="string"/>
+			<element minOccurs="1" name="RequestTime" nillable="false" type="bons0:Tmstmp_Type"/>
+			<element minOccurs="0" name="MWRequestTime" nillable="false" type="bons0:Tmstmp_Type"/>
+			<element minOccurs="1" name="ServiceCode" nillable="false" type="bons0:ServiceCode_Type"/>
+			<element minOccurs="0" name="DebugFlag" type="int"/>
+			<element minOccurs="0" name="UserInfo" nillable="false" type="bons0:UserInfo_Type"/>  
+			<element minOccurs="0" name="UDF" nillable="false" type="bons0:UDF_Type"/>
+		</sequence>
+	</complexType>
+	
+	<complexType name="ESBXMLResponseHeader_Type">
+		<sequence>
+			<element minOccurs="1" name="TransactionId" type="string">
+				<annotation>
+					<documentation>This is a GUId "Globally Unique Identifier" to
+						Identify the message.
+					</documentation>
+				</annotation>
+			</element>
+			<element minOccurs="1" name="ChannelId" nillable="false" type="bons0:ChanId_Type"/>
+			<element minOccurs="0" name="SessionId" type="string"/>
+			<element minOccurs="1" name="RequestTime" nillable="false" type="bons0:Tmstmp_Type"/>
+			<element minOccurs="0" name="MWRequestTime" nillable="false" type="bons0:Tmstmp_Type"/>
+			<element minOccurs="0" name="MWResponseime" nillable="false" type="bons0:Tmstmp_Type"/>
+			<element minOccurs="1" name="ServiceCode" nillable="false" type="bons0:ServiceCode_Type"/>
+			<element minOccurs="0" name="DebugFlag" type="int"/>
+			<element minOccurs="0" name="UserInfo" nillable="false" type="bons0:UserInfo_Type"/> 
+			<element minOccurs="0" name="UDF" nillable="false" type="bons0:UDF_Type"/>
+			<element minOccurs="1" name="ResponseStatus" nillable="false" type="bons0:MWResponseStatus_Type"/>
+			<element minOccurs="0" name="BackendError" nillable="false" type="bons0:BackendError_Type"/>
+		</sequence>
+	</complexType>
+
+	<complexType name="UDF_Type">
+		<sequence>
+			<element maxOccurs="5" minOccurs="1" name="KeyValueArr" type="bons0:KeyValueArr_Type"/>
+		</sequence>
+	</complexType>
+	
+	<complexType name="KeyValueArr_Type">
+		<sequence>
+			<element minOccurs="1" name="key" type="bons0:Key_Type"/>
+			<element minOccurs="1" name="value" type="bons0:Value_Type"/>
+			
+		</sequence>
+	</complexType>
+	
+	<simpleType name="Key_Type">
+				<restriction base="string">
+				<maxLength value="50"/>
+				</restriction>
+	</simpleType>
+	
+	<simpleType name="Value_Type">
+				<restriction base="string">
+				<maxLength value="50"/>
+				</restriction>
+	</simpleType>
+	
+	<complexType name="UserInfo_Type">
+		<sequence>
+			<element minOccurs="0" name="UserId" type="string"/>
+			<element minOccurs="0" name="IDNumber" type="string"/>
+		</sequence>
+	</complexType>
+	
+	
+	
+	<complexType name="MWResponseStatus_Type">
+		<sequence>
+			<element minOccurs="1" name="Status" type="bons0:Status_Type"/>
+			<element minOccurs="1" name="Code" type="bons0:RsCode_Type"/>
+			<element minOccurs="1" name="ArabicMsg" type="string"/>
+			<element minOccurs="1" name="EnglishMsg" type="string"/>
+		</sequence>
+	</complexType>
+	
+	<complexType name="BackendError_Type">
+		<sequence>
+			<element minOccurs="0" name="ErrorCode" nillable="false" type="string"/>
+			<element minOccurs="0" name="ErrorDescription" nillable="false" type="string"/>
+		</sequence>
+	</complexType>
+	<simpleType name="Status_Type">
+		<restriction base="string">
+			<enumeration value="Success"/>
+			<enumeration value="Warning"/>
+			<enumeration value="Error"/>
+		</restriction>
+	</simpleType>
+	
+	<simpleType name="Dt_Type">
+		<restriction base="string">
+			<pattern value="(19|20)(\d{2})[-](0[1-9]|1[012])[-](0[1-9]|[12]\d|3[01])"/>
+		</restriction>
+	</simpleType>
+	
+	<simpleType name="Tm_Type">
+		<restriction base="string">
+			<pattern value="([01]\d|2[0-3])[:]([0-5]\d)[:]([0-5]\d)[.]\d{0,5}"/>
+		</restriction>
+	</simpleType>
+		
+		<simpleType name="Tmstmp_Type">
+		<restriction base="string">
+			<pattern value="(18|19|20)(\d{2})[-](0[1-9]|1[012])[-](0[1-9]|[12]\d|3[01])[ ]([01]\d|2[0-3])[:]([0-5]\d)[:]([0-5]\d)[.]\d{0,5}">
+			</pattern>
+		</restriction>
+	</simpleType>
+	
+	
+	
+		<simpleType name="ServiceCode_Type">
+			<restriction base="string">
+			</restriction>
+		</simpleType>
+		
+		<simpleType name="FuncId_Type">
+			<restriction base="string">
+				<pattern value="\d{8}"/>
+			</restriction>
+		</simpleType>
+
+		<simpleType name="RsCode_Type">
+			<restriction base="string">
+			</restriction>
+		</simpleType>
+	
+		<simpleType name="ChanId_Type">
+			<restriction base="string">
+
+			</restriction>
+		</simpleType>
+		
+	
+</schema>

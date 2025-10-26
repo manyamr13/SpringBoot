@@ -1,0 +1,291 @@
+BROKER SCHEMA com.qiwa.esb.createempcont
+
+
+CREATE COMPUTE MODULE Validation
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		/* HERE , 1- Validate input , 2- prepare Rq to call Validate contract*/
+		-- save header prop in Environment.Variables for later use
+		SET Environment.Variables.Input = InputRoot.XMLNSC.CreateEmploymentContractRq;
+		SET Environment.Variables.Properties = InputRoot.Properties;
+		SET Environment.Variables.MQMD = InputRoot.MQMD;
+		SET Environment.Variables.MQRFH2 = InputRoot.MQRFH2;
+		--refer to the input header and body
+		DECLARE rInputHeader REFERENCE TO InputRoot.XMLNSC.CreateEmploymentContractRq.Header;
+		DECLARE rInputBody REFERENCE TO InputRoot.XMLNSC.CreateEmploymentContractRq.Body;
+		-- References to properties
+		IF EXISTS(Environment.Properties.CreateEmploymentContract.HTTP_INT_CreateEmpContract[]) THEN
+			SET Environment.Properties.CreateEmploymentContract.HTTP_CreateEmpContract =
+			Environment.Properties.CreateEmploymentContract.HTTP_INT_CreateEmpContract;
+			DELETE FIELD Environment.Properties.CreateEmploymentContract.HTTP_INT_CreateEmpContract;
+		END IF;
+		DECLARE LoadedPropertiesRef REFERENCE TO Environment.Properties.CreateEmploymentContract.HTTP_CreateEmpContract.Variables;
+		DECLARE currentDate, gregDate DATE;
+		DECLARE diffYears,startDate, RestingDays INTEGER;
+		
+		SET startDate = SUBSTRING(rInputBody.ContractDetails.CurrentStartDate FROM 1 FOR 4);
+
+		SET gregDate = CAST(CAST(rInputBody.LaborerDetails.LaborerDOB.GregDate AS TIMESTAMP) AS DATE);
+		SET currentDate = CAST(CAST(CURRENT_DATE AS TIMESTAMP) AS DATE);
+		-- Calculate difference in days
+		SET diffYears = (currentDate - gregDate) YEAR;
+
+		SET RestingDays = CAST(LoadedPropertiesRef.Seven AS INTEGER) - rInputBody.ContractDetails.DaysPerWeek;		
+
+		IF rInputHeader.ChannelId NOT IN (LoadedPropertiesRef.AllowedChannels.Value[])THEN --rInputHeader --If the ChannelId is not one of the AllowedChannels
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.ChannelErr; --E0001172
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF NOT EXISTS(rInputHeader.UserInfo.IDNumber[]) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.MissingIDErr; --E0000217
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF (CAST(rInputBody.ContractDetails.RenewalStatusId AS INTEGER) = 7 AND (CAST(rInputBody.ContractDetails.RenewalPeriod AS INTEGER)>100)) THEN
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.MissingData; -- E0000004
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		ELSEIF STARTSWITH(CAST(rInputBody.LaborerDetails.LaborerIdNo AS CHARACTER), LoadedPropertiesRef.Two ) AND CAST (rInputBody.ContractDetails.ContractDurationId AS INT ) = CAST (LoadedPropertiesRef.Two AS INT) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.DurationErr; --E0000171
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST (rInputBody.ContractDetails.ContractDurationId AS INT ) = CAST (LoadedPropertiesRef.One AS INT) AND (NOT EXISTS (rInputBody.ContractDetails.ContractPeriod[]) OR rInputBody.ContractDetails.ContractPeriod IS NULL ) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.PeriodErr; --E0001495
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST (rInputBody.ContractDetails.ContractDurationId AS INT ) = CAST (LoadedPropertiesRef.One AS INT) AND (NOT EXISTS (rInputBody.ContractDetails.CurrentExpiryDate[]) OR rInputBody.ContractDetails.CurrentExpiryDate IS NULL ) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.ExpiryErr; --E0001497
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST(CAST(rInputBody.ContractDetails.CurrentExpiryDate AS TIMESTAMP) AS DATE) <= CAST(CAST(rInputBody.ContractDetails.CurrentStartDate AS TIMESTAMP) AS DATE) THEN 
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.StartDateErr; -- E0003356
+			PROPAGATE TO TERMINAL 'out2'; -- error
+			RETURN FALSE;
+		ELSEIF CAST (rInputBody.ContractDetails.WorkingHoursTypeId AS INT ) = CAST (LoadedPropertiesRef.Two AS INT) AND (NOT EXISTS (rInputBody.ContractDetails.DaysPerWeek[]) OR NOT EXISTS (rInputBody.ContractDetails.HoursPerDay[])) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.DailyHErr; --E0001515
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST (rInputBody.ContractDetails.WorkingHoursTypeId AS INT ) = CAST (LoadedPropertiesRef.One AS INT) AND (EXISTS (rInputBody.ContractDetails.HoursPerDay[]) ) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.HoursPerDayErr; --E0003357
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST (rInputBody.ContractDetails.WorkingHoursTypeId AS INT ) = CAST (LoadedPropertiesRef.One AS INT) AND (NOT EXISTS (rInputBody.ContractDetails.HoursPerWeek[]) ) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.WeeklyyHErr; --E0001516
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST (rInputBody.ContractDetails.RestingDays AS INT ) > RestingDays THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.RestingDaysErr; --E0003358
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST (rInputBody.ContractDetails.ProbationPeriod AS INT ) > CAST (LoadedPropertiesRef.ProbationPeriod AS INT) THEN --90
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.ProbationPeriodErr; --E0000169
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST (rInputBody.ContractDetails.VacationPeriod AS INT ) < CAST (LoadedPropertiesRef.VacationPeriod AS INT) THEN --21
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.VacationPeriodErr; --E0000170
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST(rInputBody.ContractDetails.ContractDurationId AS INT) = CAST(LoadedPropertiesRef.Two AS INTEGER) AND --60
+			CAST(rInputBody.ContractDetails.NoticePeriod AS INT) < CAST(LoadedPropertiesRef.NoticePeriod60 AS INTEGER) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.NoticePeriod60Err; --E0001290
+			PROPAGATE TO TERMINAL 'out2'; --error
+		ELSEIF CAST(rInputBody.ContractDetails.NoticePeriod AS INT) > CAST(LoadedPropertiesRef.NoticePeriod120 AS INTEGER) THEN --120
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.NoticePeriodErr; --E0001498
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF CAST(rInputBody.ContractDetails.NoticePeriod AS INT) > (CAST(rInputBody.ContractDetails.ContractPeriod AS INTEGER) * 30) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.ConPeriodErr; --E0003359
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF STARTSWITH(CAST(rInputBody.LaborerDetails.LaborerIdNo AS CHARACTER), LoadedPropertiesRef.One ) AND (rInputBody.LaborerDetails.LaborerDOB.HijriDate IS NULL OR NOT EXISTS(rInputBody.LaborerDetails.LaborerDOB.HijriDate[])) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.HDOBErr; --E0003234
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF STARTSWITH(CAST(rInputBody.LaborerDetails.LaborerIdNo AS CHARACTER), LoadedPropertiesRef.Two ) AND (rInputBody.LaborerDetails.LaborerDOB.GregDate IS NULL OR NOT EXISTS(rInputBody.LaborerDetails.LaborerDOB.GregDate[])) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.GDOBErr; --E0003233
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF STARTSWITH(CAST(rInputBody.LaborerDetails.LaborerIdNo AS CHARACTER), LoadedPropertiesRef.Two ) AND (diffYears = CAST(LoadedPropertiesRef.Eighteen AS INTEGER)) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.DaysDiffErr; --E0003365
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF (CAST(rInputBody.ContractDetails.RenewalStatusId AS INTEGER) = 6 AND CAST(rInputBody.ContractDetails.ContractDurationId AS INTEGER) = 1) THEN
+			SET Environment.Variables.MWResponse.status=LoadedPropertiesRef.RenewalError; --E0001199
+			PROPAGATE TO TERMINAL 'out2'; --error
+			RETURN FALSE;
+		ELSEIF rInputBody.ContractDetails.IsUploadFilesSkiped=0 AND NOT EXISTS(rInputBody.ContractDetails.UploadedFiles.UploadedFilesItem[]) THEN
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.IsUploadFilesSkipedError0; --E0001518
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		END IF;
+		--Validating Allowances
+		IF EXISTS( rInputBody.ContractDetails.Allowances.AllowancesItem[]) THEN
+			DECLARE rAllawances REFERENCE TO rInputBody.ContractDetails.Allowances.AllowancesItem[1];
+			DECLARE otherCount INTEGER 0;
+--			SET otherCount = 0;
+			WHILE LASTMOVE (rAllawances) DO
+				--Allowance Type =3 then NameEn , Namear is M
+				IF (rAllawances.AllowanceType = CAST(LoadedPropertiesRef.Three AS INT) AND
+					( rAllawances.NameAr is NULL OR rAllawances.NameEn is NULL ) ) THEN
+					SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.AllowanceNameError; -- E0000728
+					PROPAGATE TO TERMINAL 'out2';
+					RETURN FALSE;
+					--If IsProvidedByEstablishment = 1 AND AmountType or Amount is present
+				ELSEIF (CAST(rAllawances.Amount AS DECIMAL)<= CAST(LoadedPropertiesRef.Zero AS DECIMAL)) THEN
+					SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.AllowanceAmountlesszero; -- E0001170
+					PROPAGATE TO TERMINAL 'out2';
+					RETURN FALSE;
+					-- Count Allowances of type 3 ("Other")
+				ELSEIF rAllawances.AllowanceType = CAST(LoadedPropertiesRef.Three AS INT) THEN
+					SET otherCount = otherCount + 1;
+				ELSEIF (CAST(rAllawances.Amount AS DECIMAL) > CAST(LoadedPropertiesRef.MaxAllwnAmount AS DECIMAL)) THEN
+					SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.MissingData; -- E0000004
+					PROPAGATE TO TERMINAL 'out2';
+					RETURN FALSE;
+				END IF ;
+				MOVE rAllawances NEXTSIBLING REPEAT NAME;
+			END WHILE;
+			-- If "Other" Allowance count exceeds 15 → error
+			IF otherCount > 15 THEN
+				SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.OtherAllowanceExceed; -- E0003363
+				PROPAGATE TO TERMINAL 'out2';
+				RETURN FALSE;
+			END IF;
+		END IF ;
+
+
+		IF EXISTS(rInputBody.ContractDetails.InKindBenefits.InKindBenefitsItem[]) THEN
+			DECLARE rInKindBenefits REFERENCE TO rInputBody.ContractDetails.InKindBenefits.InKindBenefitsItem[1];
+			WHILE LASTMOVE (rInKindBenefits) DO
+				--Allowance Type =3 then NameEn , Namear is M
+				IF (CAST(rInKindBenefits.Frequency AS INTEGER)=1 OR CAST(rInKindBenefits.Frequency AS INTEGER)=2) AND
+					( rInKindBenefits.DueDate is NULL OR NOT EXISTS(rInKindBenefits.DueDate[]) OR rInKindBenefits.DueDate='' ) THEN
+					SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.DueDateErr; --E0003200
+					PROPAGATE TO TERMINAL 'out2';
+					RETURN FALSE;
+				ELSEIF (CAST(rInKindBenefits.Frequency AS INTEGER)=1 OR CAST(rInKindBenefits.Frequency AS INTEGER)=2) AND
+					(CAST(CAST(rInKindBenefits.DueDate AS TIMESTAMP) AS DATE) < CAST(CAST(rInputBody.ContractDetails.CurrentStartDate AS TIMESTAMP) AS DATE)) THEN
+					SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.EarlierStartDateErr; --E0003360
+					PROPAGATE TO TERMINAL 'out2';
+					RETURN FALSE;
+				END IF;
+
+				MOVE rInKindBenefits NEXTSIBLING REPEAT NAME;
+			END WHILE;
+		END IF ;
+		-- if OptionalClausesType is 3 FirstParty, SecondParty are M
+		IF EXISTS( rInputBody.ContractDetails.OptionalClauses.OptionalClausesItem [] ) THEN
+			DECLARE rOptional REFERENCE TO rInputBody.ContractDetails.OptionalClauses.OptionalClausesItem[1];
+			WHILE LASTMOVE (rOptional) DO
+				-- ClouseType =3 FirstParty+Second Party M
+				--ClouseType <> 3 Period+Fiels +Location M
+				IF (rOptional.OptionalClausesType = CAST(LoadedPropertiesRef.One AS INT) AND
+					( rOptional.Period NOT IN(LoadedPropertiesRef.One,LoadedPropertiesRef.Two)))
+					OR ( rOptional.OptionalClausesType IN(LoadedPropertiesRef.One,LoadedPropertiesRef.Two) AND ((rOptional.Field IS NULL OR rOptional.Field = '') OR (rOptional.Location IS NULL OR rOptional.Location = ''))) THEN
+					SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.Clause12Error; -- E0000729
+					PROPAGATE TO TERMINAL 'out2';
+					RETURN FALSE;
+					-- If OptionalClausesType = 2, Period must be between 1 and 99
+				ELSEIF (rOptional.OptionalClausesType = CAST(LoadedPropertiesRef.Two AS INT) AND (rOptional.Period < 1 OR rOptional.Period > 99)) THEN
+					SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.MissingData; -- E0000004
+					PROPAGATE TO TERMINAL 'out2';
+					RETURN FALSE;
+				ELSEIF (rOptional.OptionalClausesType = CAST(LoadedPropertiesRef.Three AS INT) AND --3
+
+					( rOptional.FirstParty is NULL OR rOptional.SecondParty is NULL ) ) THEN
+
+					SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.Clause3Error; -- E0000730
+					PROPAGATE TO TERMINAL 'out2';
+					RETURN FALSE;
+
+
+				END IF ;
+				MOVE rOptional NEXTSIBLING REPEAT NAME;
+			END WHILE;
+		END IF;
+		DECLARE ExtEntConLookup INTEGER ExternalEntitiesContracts_LookupData_Check (CAST(rInputBody.ContractDetails.OccupationId AS INTEGER),
+		rInputBody.LaborerDetails.WorkLocationId,
+		rInputBody.LaborerDetails.SpecialityId, 
+		Environment.Variables.DB.ExtEntConLookupRs[]) ;
+		IF LoadedPropertiesRef.ExistsFalse IN(Environment.Variables.DB.ExtEntConLookupRs.OccupationExists, Environment.Variables.DB.ExtEntConLookupRs.WorkLocationExists, Environment.Variables.DB.ExtEntConLookupRs.SpecialityExists)THEN
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.ExistenceError; -- E0003362
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		ELSEIF ExtEntConLookup <> LoadedPropertiesRef.Zero THEN
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.LookupError; -- E0003361
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		END IF;
+
+		DECLARE HijriDate INTEGER Get_CurrentHijriDate (Environment.Variables.DB.HijriDateRs[]) ;
+
+		IF HijriDate <> LoadedPropertiesRef.Zero THEN
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.HijriSPError; -- E0001349
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		ELSE
+			DECLARE ageHijri INTEGER;
+			SET ageHijri = CAST(SUBSTRING(Environment.Variables.DB.HijriDateRs.CurrentHijriDate FROM 1 FOR 4) AS INTEGER) - CAST(SUBSTRING(rInputBody.LaborerDetails.LaborerDOB.HijriDate FROM 1 FOR 4) AS INTEGER);
+			IF ageHijri < 15 THEN
+				SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.AgeHijriError; -- E0003364
+				PROPAGATE TO TERMINAL 'out2';
+				RETURN FALSE;
+			END IF;
+		END IF;
+		--Call UnifiedNumberEstablishment_Get
+		DECLARE UniNOEstRes INTEGER UnifiedNumberEstablishment_Get( CAST(rInputBody.EstablishmentDetails.NationalUnifiedNumber AS CHARACTER),
+		Environment.Variables.DB.UnifNumbRS[]);
+
+		IF CAST(UniNOEstRes AS INT)= -2 THEN
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.InccorectUnified_Error; --E0003231
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		ELSEIF CAST(UniNOEstRes AS INT)= -3 THEN
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.MultiEst_Error; --E0003235
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		ELSEIF NOT EXISTS(Environment.Variables.DB.UnifNumbRS[]) THEN
+			SET Environment.Variables.MWResponse.status = LoadedPropertiesRef.InccorectUnified_Error; --E0003231
+			PROPAGATE TO TERMINAL 'out2';
+			RETURN FALSE;
+		ELSEIF EXISTS(Environment.Variables.DB.UnifNumbRS[]) THEN
+			--Pepare ValidateContract Call
+
+			CREATE LASTCHILD OF OutputRoot DOMAIN 'XMLNSC';
+			CREATE FIRSTCHILD OF OutputRoot.XMLNSC.ValidateContractRq NAME 'Header';
+			DECLARE OutHeaderRef REFERENCE TO OutputRoot.XMLNSC.ValidateContractRq.Header;
+			CREATE LASTCHILD OF OutputRoot.XMLNSC.ValidateContractRq NAME 'Body';
+			DECLARE OutBodyRef REFERENCE TO OutputRoot.XMLNSC.ValidateContractRq.Body;
+			-- Set service-specific headers
+			SET OutHeaderRef= rInputHeader;
+			SET OutHeaderRef.ServiceCode = LoadedPropertiesRef.ValidateContractSC; --VC000001
+			SET OutHeaderRef.ChannelId = LoadedPropertiesRef.ChannelId; --ESB
+			-- Copy input values to the output request
+			SET OutBodyRef.LaborOfficeId = Environment.Variables.DB.UnifNumbRS.LaborofficeID;
+			SET OutBodyRef.SequenceNumber = Environment.Variables.DB.UnifNumbRS.SequenceNumber;
+			SET OutBodyRef.LaborerIdNo = rInputBody.LaborerDetails.LaborerIdNo;
+			SET OutBodyRef.LaborerBirthDate.HijriDate = COALESCE(CAST(rInputBody.LaborerDetails.LaborerDOB.HijriDate AS CHAR), NULL);
+			SET OutBodyRef.LaborerBirthDate.GregDate = COALESCE(CAST(rInputBody.LaborerDetails.LaborerDOB.GregDate AS CHAR), NULL);
+			SET OutBodyRef.OccupationId = rInputBody.ContractDetails.OccupationId;
+			--target URL
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = LoadedPropertiesRef.ValidateContractURL;
+		END IF;
+		RETURN TRUE;
+
+
+	END;
+	CREATE PROCEDURE ExternalEntitiesContracts_LookupData_Check (IN p_OccupationId INTEGER,
+	IN p_WorkLocationId INTEGER,
+	IN p_SpecialityId INTEGER)
+	RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.ExternalEntitiesContracts_LookupData_Check";
+
+	CREATE PROCEDURE Get_CurrentHijriDate ()
+	RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.Get_CurrentHijriDate";
+
+	CREATE PROCEDURE UnifiedNumberEstablishment_Get (IN p_NationalUnifiedNumber CHARACTER)
+	RETURNS INTEGER LANGUAGE DATABASE
+	DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.UnifiedNumberEstablishment_Get";
+
+
+END MODULE;
