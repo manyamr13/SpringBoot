@@ -1,0 +1,265 @@
+BROKER SCHEMA com.qiwa.esb.autorenewcontracts
+
+CREATE COMPUTE MODULE AutoRenewAndCloseContractsFlow_GetExpContracts
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		CALL CopyMessageHeaders();
+		SET OutputRoot.Properties = InputRoot.Properties;
+		--load properties
+		DECLARE LoadProperties REFERENCE TO Environment.Properties.AutoRenewAndCloseContracts.AutoRenewAndCloseContractsFlow.Variables;
+
+		SET Environment.Variables.SchedulerRun.SchRunRes = 1;
+		DECLARE SchRun REFERENCE TO Environment.Variables.SchedulerRun;
+		SET SchRun.TotalRecords = 0;
+		----
+		DECLARE ResultId , CreateLog , ResultSP3 ,ResultSP4 , ResultSP5 ,ResultSP6 , ResultSP7, ResultSP8 INTEGER;
+		SET ResultId = GetSchedulerSetting(CAST(LoadProperties.SchedulerId AS INTEGER), SchRun.DB.GetSetting[]); --SchedulerRunSetting_Get_by_SchedulerCode
+		IF (ResultId <> 0) OR (NOT EXISTS(SchRun.DB.GetSetting[])) THEN
+			RETURN FALSE;
+		END IF;
+		--SchedulerRunSettingLog_Create
+		SET CreateLog = SchedulerRunSettingLogCreate(CAST(LoadProperties.SchedulerId AS INTEGER),
+		CAST(SchRun.DB.GetSetting.CurrentDate AS TIMESTAMP),
+		CAST(SchRun.DB.GetSetting.ConfigurationDate AS DATE),
+		CAST(SchRun.DB.GetSetting.CurrentTime AS TIME),
+		CAST(SchRun.DB.GetSetting.TimeFrom AS TIME),
+		CAST(SchRun.DB.GetSetting.TimeTo AS TIME),
+		CAST(LoadProperties.SchedulerId AS INTEGER),
+		SchRun.DB.SchLog[]);
+		COMMIT;
+		-- Check Result
+		IF NOT EXISTS(SchRun.DB.SchLog[]) OR CreateLog <> 0 THEN
+			SET SchRun.SchRunRes = 2;
+			SET SchRun.LogFail = 1;
+			RETURN TRUE;
+		END IF;
+
+		DELETE FIELD InputRoot.BLOB;
+		DECLARE RecordsFlag BOOLEAN TRUE;
+		-- SET Handled and Faild Records
+		SET SchRun.SchRes.Handled = 0;
+		SET SchRun.SchRes.Faild =0;
+		-- SET FromId 0 In The First Time :
+		IF NOT EXISTS (Environment.Variables.esb.FromId[]) THEN
+			SET Environment.Variables.esb.FromId = 0;
+		END IF;
+		DECLARE countFailure1 , countFailure2 , countFailure3 , countFailure4 , countFailure5, countFailure6 INTEGER 0;
+		DECLARE indxFaluire INTEGER 1;
+		-- Main Loop
+		MainLoop:WHILE RecordsFlag DO
+		-- Get List Of Expired Contracts --------:::
+		CALL GetExpiredContracts(100, --PageSize
+		Environment.Variables.esb.FromId,
+		SchRun.DB.EXPContract[]) INTO ResultSP3;
+		IF NOT EXISTS(SchRun.DB.EXPContract[]) OR ResultSP3 <> 0 THEN
+			IF ResultSP3 = -2 THEN
+				SET SchRun.SchRunRes = 1;
+				IF SchRun.TotalRecords = 0 THEN -- SET ERROR NO RECORDS FOUND IF THIS FIRST LOOP
+					SET SchRun.ErrorsOverview = 'NO RECORDS RETURNED';
+				END IF;
+				SET RecordsFlag = FALSE;
+				LEAVE MainLoop;
+			ELSE -- IF Any Exception :
+				SET countFailure1 = countFailure1 + 1;
+				SET SchRun.SchRunRes = 2;
+				SET SchRun.ErrosFromSPs[indxFaluire].x = 'Error : Exception Have Occured to One Or More Records By : '|| 'Technical Failure FROM ' || 'QIWA SP ' || 'ExpiredContracts_Get' ;
+				SET indxFaluire = indxFaluire +1 ;
+				IF countFailure1 = 3 THEN
+					SET RecordsFlag = FALSE;
+					LEAVE MainLoop; --Exit the flow if any failure has occurred more than 3 times
+				END IF;
+			END IF;
+		ELSE
+			IF countFailure1 > 0 THEN SET countFailure1= 0; END IF; -- Reset countOfFailure To Not Exist The Flow
+		END IF;
+		-- First Loop
+		DECLARE refResult REFERENCE TO SchRun.DB.EXPContract[1];
+		WHILE LASTMOVE(refResult) DO
+			-----
+			DECLARE ContractId INTEGER CAST(refResult.ContractId AS INTEGER); -- Get ContractID
+			DECLARE RenewalStatusId INTEGER refResult.RenewalStatusId; -- Get RenewalStatusId
+			DECLARE ContractRenewCount INTEGER refResult.ContractRenewCount; -- Get ContractRenewCount
+			DECLARE RenewalTimes INTEGER refResult.RenewalTimes; -- Get RenewalTimes
+			DECLARE ContractPeriod ,RenewUpdate INTEGER NULL;
+
+			IF RenewalStatusId = 2 OR (RenewalStatusId IN (3,4) AND ContractRenewCount = 1)
+				OR (RenewalStatusId = 5 AND ContractRenewCount = RenewalTimes)
+				THEN
+				-- CLOSE CONTRACT : SP QIWA To Terminate The Contract ::
+				CALL ContractCloseUpdate (ContractId,
+				Environment.Variables.DB.CLOSE[]) INTO ResultSP4;
+				IF ResultSP4 = -1 THEN
+					SET countFailure2 = countFailure2 + 1;
+					SET SchRun.SchRunRes = 2;
+					SET SchRun.ErrosFromSPs[indxFaluire].x = 'Error : Exception Have Occured to One Record By : ' || 'Technical Failure from' || 'QIWA SP ' || 'Contracts_Close_Update' || ' FOR This ContractID : ' || CAST(ContractId AS CHARACTER);
+					SET indxFaluire = indxFaluire +1 ;
+				ELSEIF ResultSP4 = 0 THEN
+					IF countFailure2 > 0 THEN SET countFailure2= 0; END IF; -- Reset countOfFailure to allow the flow to continue if the issue does not occur again
+					SET SchRun.TotalRecords = SchRun.TotalRecords + 1; -- Add Counter For The Loop To Set TotalRecords
+					SET SchRun.SchRes.Handled = SchRun.SchRes.Handled + 1; -- Add Handled Records
+				END IF;
+			ELSE
+
+				DECLARE SPResC INT TerminateContract_PendReq_Check (
+				CAST(refResult.LaborOfficeId AS INT),
+				CAST(refResult.SequenceNumber AS INT),
+				CAST(refResult.LaborerId AS CHAR),
+				Environment.Variables.DB.TCcheck[]);
+				--TerminateContract_PendReq_Check Validations
+				IF EXISTS(Environment.Variables.DB.TCcheck[]) THEN
+					IF Environment.Variables.DB.TCcheck.HasPendingTCRequest = 0 THEN
+						SET ResultSP8 = 0;
+					ELSEIF Environment.Variables.DB.TCcheck.HasPendingTCRequest = 1 AND
+						CAST(Environment.Variables.DB.TCcheck.ContractId AS INT) <> CAST(refResult.ContractId AS INT) THEN
+						SET ResultSP8 = 0;
+					END IF;
+				END IF;
+
+				IF ResultSP8 = 0 THEN
+					IF countFailure6 > 0 THEN SET countFailure6= 0; END IF; -- Reset countOfFailure to allow the flow to continue if the issue does not occur again
+					IF RenewalStatusId = 4 THEN -- To Check Renewal Status
+						SET ContractPeriod =CAST(refResult.RenewalPeriod AS INTEGER);
+						SET RenewUpdate = CAST(refResult.RenewalPeriod AS INTEGER);
+					ELSE
+						SET ContractPeriod =refResult.ContractPeriod;
+					END IF;
+					IF refResult.IsUnified = TRUE THEN
+						SET ContractRenewCount = refResult.ContractRenewCount + 1;
+					ELSE
+						SET ContractRenewCount = NULL;
+					END IF;
+					-- Get Start And Expiry Date : SP QIWA To Update The Contract ::
+					CALL ContractStartExpiry (refResult.GregorianExpiryDate ,
+					ContractPeriod,
+					Environment.Variables.DB.StartDate[])
+					INTO ResultSP5;
+					IF ResultSP5 = -1 THEN
+						SET countFailure3 = countFailure3 + 1;
+						SET SchRun.SchRunRes = 2;
+						SET SchRun.ErrosFromSPs[indxFaluire].x = 'Error : Exception Have Occured to One Record By : ' || 'Technical Failure FROM ' || 'QIWA SP ' || 'Contracts_StartExpiryDates_Get'|| ' FOR This ContractID : ' || CAST(ContractId AS CHARACTER);
+						SET indxFaluire = indxFaluire +1 ;
+					ELSEIF ResultSP5 = 0 THEN
+						IF countFailure3 > 0 THEN SET countFailure3= 0; END IF; -- Reset countOfFailure to allow the flow to continue if the issue does not occur again
+					END IF;
+				ELSE
+					SET countFailure6 = countFailure6 + 1;
+					SET SchRun.SchRunRes = 2;
+					SET SchRun.ErrosFromSPs[indxFaluire].x = 'Error : Exception Have Occured to One Record By : ' || 'Technical Failure FROM ' || 'QIWA SP ' || 'TerminateContract_PendReq_Check'|| ' FOR This ContractID : ' || CAST(ContractId AS CHARACTER);
+					SET indxFaluire = indxFaluire +1 ;
+				END IF;
+
+				IF ResultSP5 = 0 THEN
+					CALL ExpiredContractHistory (ContractId,
+					Environment.Variables.DB.Expired[])
+					INTO ResultSP7;
+					IF ResultSP7 = -1 THEN
+						SET countFailure5 = countFailure5 + 1;
+						SET SchRun.SchRunRes = 2;
+						SET SchRun.ErrosFromSPs[indxFaluire].x = 'Error : Exception Have Occured to One Record By : ' || 'Technical Failure FROM ' || 'QIWA SP ' || 'ExpiredContract_History_Create'|| ' FOR This ContractID : ' || CAST(ContractId AS CHARACTER);
+						SET indxFaluire = indxFaluire +1 ;
+					ELSEIF ResultSP7 = 0 THEN
+						IF countFailure5 > 0 THEN SET countFailure5= 0; END IF; -- Reset countOfFailure to allow the flow to continue if the issue does not occur again
+					END IF;
+				END IF;
+				IF ResultSP7 = 0 THEN
+					-- This SP To Renew The Contract : SP QIWA ::=
+					CALL ContractRenewUpdate (ContractId,
+					Environment.Variables.DB.StartDate[1].StartDate,
+					Environment.Variables.DB.StartDate[1].ExpiryDate,
+					COALESCE(RenewUpdate,NULL),
+					refResult.ContractVersion + 1,
+					COALESCE(ContractRenewCount,NULL),
+					NULL,
+					NULL,
+					NULL,
+					NULL,
+					Environment.Variables.ESB.RenewUpdate[])
+					INTO ResultSP6;
+					IF ResultSP6 = -1 THEN
+						SET countFailure4 = countFailure4 + 1;
+						ROLLBACK;
+						SET SchRun.SchRunRes = 2;
+						SET SchRun.ErrosFromSPs[indxFaluire].x = 'Error : Exception Have Occured to One Record By : ' || 'Technical Failure FROM ' || 'QIWA SP ' || 'Contracts_Renew_Update' || ' FOR This ContractID : ' || CAST(ContractId AS CHARACTER);
+						SET indxFaluire = indxFaluire +1 ;
+					ELSEIF ResultSP6 = -2 THEN
+						SET SchRun.SchRes.Faild = SchRun.SchRes.Faild + 1; --Add Counter For Faild Records
+					ELSEIF ResultSP6 = 0 THEN
+						IF countFailure4 > 0 THEN SET countFailure4= 0; END IF; -- Reset countOfFailure to allow the flow to continue if the issue does not occur again
+						SET SchRun.SchRes.Handled = SchRun.SchRes.Handled + 1; --Add Counter For Handled Records
+					END IF;
+				END IF;
+				SET SchRun.TotalRecords = SchRun.TotalRecords + 1; -- Add Counter For The Loop To Set TotalRecords
+			END IF;
+			-- Exit the flow if any failure has occurred more than 3 times from any previous SPs.
+			IF countFailure2 = 3 OR countFailure3 = 3 OR countFailure4 = 3 OR countFailure5 = 3 THEN
+				SET RecordsFlag = FALSE;
+				LEAVE MainLoop; -- EXIT
+			END IF;
+			MOVE refResult NEXTSIBLING REPEAT NAME; -- Next Loop
+		END WHILE;
+		-- SET FromId To Get Next Page :
+		SET Environment.Variables.esb.FromId = SchRun.DB.EXPContract[1].NextId;
+	END WHILE;
+	RETURN TRUE;
+END;
+
+CREATE PROCEDURE GetSchedulerSetting (IN SchedulerCode INTEGER)
+RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+EXTERNAL NAME "dbo.SchedulerRunSetting_Get_by_SchedulerCode";
+
+CREATE PROCEDURE SchedulerRunSettingLogCreate (IN SchedulerId INTEGER,
+IN LastRunDate TIMESTAMP,
+IN ConfigDate DATE,
+IN SchedulerStart TIME,
+IN StartTime Time,
+IN TimeFrim Time,
+IN CreatedBy int)
+RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+EXTERNAL NAME "dbo.SchedulerRunSettingLog_Create";
+
+CREATE PROCEDURE GetExpiredContracts (IN PageSize INTEGER , IN FromId INTEGER)
+RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+EXTERNAL NAME "dbo.ExpiredContracts_Get";
+
+CREATE PROCEDURE ContractCloseUpdate (IN ContractId INTEGER)
+RETURNS INTEGER
+LANGUAGE DATABASE DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.Contracts_Close_Update";
+
+CREATE PROCEDURE ContractStartExpiry (IN CurrentExpiryDate TIMESTAMP ,IN ContractPeriod INTEGER)
+RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+EXTERNAL NAME "dbo.Contracts_StartExpiryDates_Get";
+
+CREATE PROCEDURE ExpiredContractHistory (IN ContractId INTEGER)
+RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+EXTERNAL NAME "dbo.ExpiredContract_History_Create";
+CREATE PROCEDURE ContractRenewUpdate (IN ContractId INTEGER ,
+IN StartDate TIMESTAMP ,
+IN ExpiryDate TIMESTAMP,
+IN ContractPeriod INTEGER ,
+IN ContractVersion INTEGER ,
+IN ContractRenewCount INTEGER,
+IN p_ActivationSentToHRSD INTEGER,
+IN p_TerminationSentToHRSD INTEGER,
+IN p_MOJReferenceNumber INTEGER,
+IN p_HRSDLastSendingDate TIMESTAMP)
+RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1
+EXTERNAL NAME "dbo.Contracts_Renew_Update";
+
+CREATE PROCEDURE TerminateContract_PendReq_Check (
+IN LaborOfficeId INTEGER,
+IN SequenceNumber INTEGER,
+IN LaborerIdNo CHARACTER
+
+) RETURNS INTEGER LANGUAGE DATABASE DYNAMIC RESULT SETS 1 EXTERNAL NAME "dbo.TerminateContract_PendReq_Check";
+
+CREATE PROCEDURE CopyMessageHeaders() BEGIN
+	DECLARE I INTEGER 1;
+	DECLARE J INTEGER;
+	SET J = CARDINALITY(InputRoot.*[]);
+	WHILE I < J DO
+		SET OutputRoot.*[I] = InputRoot.*[I];
+		SET I = I + 1;
+	END WHILE;
+END;
+
+END MODULE;

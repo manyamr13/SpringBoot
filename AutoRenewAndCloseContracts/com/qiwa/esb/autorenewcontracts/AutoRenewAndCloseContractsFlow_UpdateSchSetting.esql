@@ -1,0 +1,92 @@
+BROKER SCHEMA com.qiwa.esb.autorenewcontracts
+
+
+CREATE COMPUTE MODULE AutoRenewAndCloseContractsFlow_UpdateSchSetting
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+        -- UPDATE Scheduler  :: Resolve Success Status of this Instance of Scheduler Run  
+		DECLARE PropertiesRef REFERENCE TO Environment.Properties.AutoRenewAndCloseContracts.AutoRenewAndCloseContractsFlow.Variables;
+		DECLARE SchRun 	  REFERENCE TO Environment.Variables.SchedulerRun;		
+		DECLARE RunStatus INT CAST(SchRun.SchRunRes AS INT); 
+ 		-- RESOLVE Scheduler Run Status -> Failure If 1- an Exception was thrown 2- All Processed Records failed   
+		IF EXISTS(InputExceptionList.RecoverableException[]) THEN       			
+			SET RunStatus = 2; 
+			DECLARE ExceptionExtrct_ CHARACTER ''; 
+			DECLARE RecovrbleRef REFERENCE TO InputExceptionList.*[1];			 
+			SET ExceptionExtrct_ = CAST(RecovrbleRef.Number as CHARACTER) || ':' || RecovrbleRef.Text || ':' || COALESCE(RecovrbleRef.Label, '') || ExceptionExtrct_ ;
+			SET	SchRun.ErrorsOverview = 'Errors / Exceptions Have Occured to One or more Records By: '  || '|a Runtime Error Occured: ' || ExceptionExtrct_ || '|';     
+		END IF ;  
+		-- UPDATE Scheduler Setting SP
+		DECLARE Res,logUdt INT;
+		CALL UpdateSchedulerSetting (  
+										CAST(PropertiesRef.SchedulerId AS INT),
+										CAST(CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'HH:mm:ss.SSS') AS TIME),
+										CAST(CAST(SchRun.DB.GetSetting[1].CurrentDate  AS CHARACTER FORMAT 'yyyy-MM-dd HH:mm:ss.SSS') AS TIMESTAMP),
+										NULL,
+										NULL,
+										ExecutionGroupLabel, 
+										RunStatus,  
+										NULL,  
+										CAST(PropertiesRef.SchedulerId AS INT)
+		) INTO Res;
+		-- UPDATE Scheduler  :: Qiwa SP 2  
+		IF SchRun.LogFail = 1 OR NOT EXISTS(SchRun.DB.SchLog[]) THEN 
+			RETURN FALSE;   
+		END IF; 
+		
+		-- SET Handled and Faild Records
+		IF SchRun.Notes IS NULL OR SchRun.Notes = '' THEN
+			SET SchRun.Notes = 'NumOfHandledRecords = ' || COALESCE(CAST(SchRun.SchRes.Handled AS CHARACTER), '0') || ' , NumOfFaildRecords = ' || COALESCE(CAST(SchRun.SchRes.Faild AS CHARACTER), '0');
+		END IF;
+		
+		
+		IF EXISTS(SchRun.ErrosFromSPs[])  THEN
+			DECLARE errorMessage CHARACTER '';
+			DECLARE index INTEGER 1;
+			DECLARE refErros REFERENCE TO SchRun.ErrosFromSPs[index];
+			WHILE LASTMOVE(refErros) DO
+			    SET errorMessage = errorMessage || SchRun.ErrosFromSPs[index].x || ' ; ';
+			    SET index = index + 1;
+			    MOVE refErros NEXTSIBLING REPEAT NAME;
+			END WHILE;
+			
+			-- Remove the last semicolon and space if needed
+			IF LENGTH(errorMessage) > 2 THEN
+			    SET errorMessage = SUBSTRING(errorMessage FROM 1 FOR LENGTH(errorMessage) - 2);
+			END IF;
+			SET Environment.Variables.Errors = errorMessage;	
+		END IF;
+		-- UPDATE Scheduler Log SP
+		CALL SchedulerRunSettingLog_Update (CAST(SchRun.DB.SchLog[1].SchedulerLogCode AS INT),   
+			                                COALESCE(CAST(SchRun.ErrorsOverview AS CHARACTER),Environment.Variables.Errors), 
+ 			                                COALESCE(CAST(SchRun.TotalRecords AS INTEGER), NULL), 
+			                                RunStatus,         
+			                                COALESCE(CAST(SchRun.Notes AS CHARACTER), 'NA'),    
+			                                CAST(PropertiesRef.SchedulerId AS INT) 
+		) INTO logUdt;
+		-- END OF Execution 
+		RETURN FALSE;
+	END;
+-- Qiwa DB Procedure Definition 
+CREATE PROCEDURE UpdateSchedulerSetting (
+											IN p_SchedulerCode INT,
+											IN p_SchedulerStartTime TIME,
+											IN p_SchedulerLastRunDate TIMESTAMP,
+											IN p_TimeFrom TIME,
+											IN p_TimeTo TIME,
+											IN p_IntegrationServerName CHARACTER,
+											IN p_RunStatusCode INT,
+											IN p_ConfigurationDate DATE,
+											IN p_LastModifiedBy INTEGER
+) RETURNS INTEGER LANGUAGE DATABASE EXTERNAL NAME "dbo.SchedulerRunSetting_Update";
+
+-- Qiwa DB Procedure Definition 
+CREATE PROCEDURE SchedulerRunSettingLog_Update (
+													IN p_SchedulerLogCode INT,
+													IN p_ErrorDescription CHARACTER, 
+													IN p_NumberOfRecords INT,
+													IN p_StatusCode INT,
+													IN p_Notes CHARACTER,
+													IN p_LastModifiedBy INTEGER
+) RETURNS INTEGER LANGUAGE DATABASE EXTERNAL NAME "dbo.SchedulerRunSettingLog_Update";	
+END MODULE;
